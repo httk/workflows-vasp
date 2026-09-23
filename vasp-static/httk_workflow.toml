@@ -1,0 +1,27 @@
+[workflow]
+id = "vasp.static"
+description = "one single-point calculation of one structure"
+declaration_uri = "https://schemas.httk.org/defs/v0.1/workflows/vasp-static"
+declaration_file = "declaration.json"
+
+[workflow.runner]
+entry = "run"
+steps = ["publish", "prepare", "run"]
+initial_step = "prepare"
+data_mode = "none"
+
+[workflow.inputs.structure]
+destination = "POSCAR"
+role = "initial_structure"
+entry_type = "structures"
+required = true
+
+[workflow.outputs.total_energy]
+entry_type = "records"
+role = "total_energy"
+ref = "https://schemas.httk.org/defs/v0.1/properties/core/total_energy"
+description = "The total energy of the structure."
+product_of = "initial_structure"
+
+[workflow.collect]
+file = "collect.py"

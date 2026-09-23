@@ -1,0 +1,34 @@
+{
+  "$id": "https://schemas.httk.org/defs/v0.1/workflows/vasp-relax",
+  "title": "VASP structure relaxation",
+  "description": "This workflow declaration defines the httk vasp-relax workflow: it relaxes the geometry of a crystal structure with VASP.\nIt defines the meaning of its roles: input role initial_structure is a structures entry containing the structure to relax.\nOutput role relaxed_structure is a structures entry containing the relaxed geometry, and output role total_energy is a records entry containing the final total energy of the relaxed structure.",
+  "x-httk-definition": {
+    "kind": "workflow_declaration",
+    "format": "0.1",
+    "version": "0.1.0",
+    "name": "vasp-relax",
+    "label": "vasp_relax_workflow_httk"
+  },
+  "inputs": [
+    {
+      "name": "initial_structure",
+      "entry_type": "structures",
+      "ref": "https://schemas.optimade.org/defs/v1.3/entrytypes/optimade/structures",
+      "description": "The structure to relax."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "relaxed_structure",
+      "entry_type": "structures",
+      "ref": "https://schemas.optimade.org/defs/v1.3/entrytypes/optimade/structures",
+      "description": "The relaxed geometry."
+    },
+    {
+      "name": "total_energy",
+      "entry_type": "records",
+      "ref": "https://schemas.httk.org/defs/v0.1/properties/core/total_energy",
+      "description": "The final total energy of the relaxed structure."
+    }
+  ]
+}

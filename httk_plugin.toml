@@ -1,0 +1,4 @@
+[plugin]
+name = "workflows-vasp"
+description = "Packaged VASP workflows (relax, relax in Bash, static, relax-then-static)"
+workflows = ["vasp-relax", "vasp-relax-bash", "vasp-static", "vasp-relax-static"]

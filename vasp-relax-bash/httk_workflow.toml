@@ -1,0 +1,42 @@
+[workflow]
+id = "vasp.relax-bash"
+description = "the same relaxation, authored in Bash"
+declaration_uri = "https://schemas.httk.org/defs/v0.1/workflows/vasp-relax"
+declaration_file = "declaration.json"
+
+[workflow.runner]
+entry = "run"
+steps = ["publish", "prepare", "run"]
+initial_step = "prepare"
+data_mode = "none"
+
+[workflow.inputs.structure]
+destination = "POSCAR"
+role = "initial_structure"
+entry_type = "structures"
+required = true
+
+[workflow.outputs.relaxed_structure]
+entry_type = "structures"
+role = "relaxed_structure"
+ref = "https://schemas.optimade.org/defs/v1.3/entrytypes/optimade/structures"
+description = "The relaxed geometry."
+product_of = "initial_structure"
+
+[workflow.outputs.total_energy]
+entry_type = "records"
+role = "total_energy"
+ref = "https://schemas.httk.org/defs/v0.1/properties/core/total_energy"
+description = "The final total energy of the relaxed structure."
+product_of = "relaxed_structure"
+
+[workflow.collect]
+file = "collect.py"
+
+[workflow.postprocess.relaxation-report]
+file = "scripts/relaxation_report"
+description = "write a relaxation summary (text + JSON) into the job's postprocess directory"
+
+[workflow.postprocess.relaxation-plot]
+file = "scripts/relaxation_plot"
+description = "plot ionic-step energies into the job's postprocess directory"
