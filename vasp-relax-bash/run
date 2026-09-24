@@ -6,11 +6,13 @@
 # the same job inputs and parameters, the same job state, the same failure codes, and the same
 # files in the workdir and in the published data — because they call the same
 # helpers through the Bash bridge. The job inputs and parameters are documented in
-# httk.workflow.vasp.runners; a job may run either file and get the same result.
+# this repository's README; this file is the entry of this package directory,
+# reference it by git URI (e.g. git+https://github.com/httk/workflows-vasp#vasp-relax-bash)
+# or with --workflow-dir; a job may run either file and get the same result.
 set -euo pipefail
 source "$HTTK_WORKFLOW_BASH_API"
 source "$HTTK_WORKFLOW_VASP_BASH_API"
-httk_workflow_runner httk.vasp.relax-bash prepare run publish
+httk_workflow_runner vasp.relax-bash prepare run publish
 
 _vasp_collect_default="INCAR KPOINTS OUTCAR CONTCAR OSZICAR vasprun.xml vasp-run-report.json POTCAR.provenance.json"
 

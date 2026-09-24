@@ -7,10 +7,11 @@ executes VASP under supervision and, when the run fails in a way the reviewed
 remedy ladder recognizes, applies exactly one remedy and asks for another attempt;
 ``publish`` publishes the files that describe the finished calculation.
 
-The job inputs and parameters are documented in :mod:`httk.workflow.vasp.runners`. Nothing here
-imports anything but an installed *httk-workflow*, so this one file is the whole
-runner: reference it as ``pkg:httk.workflow.vasp.runners/vasp_relax.py``, publish it to
-a workspace runner store, or copy it and edit it.
+The job inputs and parameters are documented in this repository's README. Nothing
+here imports anything but an installed *httk-workflow*, so this one file is the
+whole runner: it is the entry of this package directory, reference it by git URI
+(e.g. ``git+https://github.com/httk/workflows-vasp#vasp-relax``) or with
+``--workflow-dir``, publish it to a workspace runner store, or copy it and edit it.
 """
 
 import os
@@ -45,7 +46,7 @@ except ModuleNotFoundError:  # pragma: no cover - interpreter bootstrap
     os.environ["HTTK_WORKFLOW_RUNNER_BOOTSTRAP"] = "1"
     os.execv(_python, [_python, os.path.abspath(__file__), *sys.argv[1:]])
 
-WORKFLOW = "httk.vasp.relax"
+WORKFLOW = "vasp.relax"
 DEFAULT_COLLECT = "INCAR KPOINTS OUTCAR CONTCAR OSZICAR vasprun.xml vasp-run-report.json POTCAR.provenance.json"
 DEFAULT_TIMEOUT = 86400.0
 DEFAULT_MAXIMUM_REMEDIES = 8

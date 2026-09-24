@@ -8,10 +8,11 @@ static tags â€” ``IBRION = -1`` and ``NSW = 0`` unless the job says otherwise â€
 the result. The structure may be a POSCAR or the CONTCAR of an earlier
 relaxation, staged as an input file of this job and named by the ``poscar`` input.
 
-The job inputs and parameters are documented in :mod:`httk.workflow.vasp.runners`. Nothing here
-imports anything but an installed *httk-workflow*, so this one file is the whole
-runner: reference it as ``pkg:httk.workflow.vasp.runners/vasp_static.py``, publish it to
-a workspace runner store, or copy it and edit it.
+The job inputs and parameters are documented in this repository's README. Nothing
+here imports anything but an installed *httk-workflow*, so this one file is the
+whole runner: it is the entry of this package directory, reference it by git URI
+(e.g. ``git+https://github.com/httk/workflows-vasp#vasp-static``) or with
+``--workflow-dir``, publish it to a workspace runner store, or copy it and edit it.
 """
 
 import os
@@ -46,7 +47,7 @@ except ModuleNotFoundError:  # pragma: no cover - interpreter bootstrap
     os.environ["HTTK_WORKFLOW_RUNNER_BOOTSTRAP"] = "1"
     os.execv(_python, [_python, os.path.abspath(__file__), *sys.argv[1:]])
 
-WORKFLOW = "httk.vasp.static"
+WORKFLOW = "vasp.static"
 #: What makes a calculation a single point: no ionic step, and no ionic loop.
 DEFAULT_STATIC_TAGS: dict[str, object] = {"IBRION": -1, "NSW": 0}
 DEFAULT_COLLECT = "INCAR KPOINTS OUTCAR CONTCAR OSZICAR vasprun.xml vasp-run-report.json POTCAR.provenance.json"
