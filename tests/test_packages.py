@@ -41,9 +41,7 @@ def test_package_steps_equal_the_runners_own_description(directory: str) -> None
 @pytest.mark.parametrize("directory", _DIRECTORIES)
 def test_package_declaration_matches_the_committed_file(directory: str) -> None:
     provider = load_workflow_package(REPO_ROOT / directory, register=False)
-    declared = json.loads(
-        (REPO_ROOT / directory / "declaration.json").read_text(encoding="utf-8")
-    )
+    declared = json.loads((REPO_ROOT / directory / "declaration.json").read_text(encoding="utf-8"))
     assert provider.declarations["workflow"] == declared
 
 

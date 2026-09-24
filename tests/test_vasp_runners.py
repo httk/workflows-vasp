@@ -149,9 +149,7 @@ def _campaign(
     root.mkdir(parents=True)
     executable = _fake_vasp(root, fail_once=fail_once)
     if set_command_environment:
-        monkeypatch.setenv(
-            "HTTK_VASP_COMMAND", str(executable) if command is None else command
-        )
+        monkeypatch.setenv("HTTK_VASP_COMMAND", str(executable) if command is None else command)
     workspace = Workspace.initialize(root / "workspace")
     for key, value in (workspace_settings or {}).items():
         workspace.set_setting(key, value)
@@ -209,9 +207,7 @@ def _files(root: Path) -> list[str]:
     )
 
 
-def test_the_packaged_relax_runner_prepares_runs_and_collects(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_the_packaged_relax_runner_prepares_runs_and_collects(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     workspace, job_id = _campaign(
         tmp_path / "relax",
         monkeypatch,
@@ -233,9 +229,7 @@ def test_the_packaged_relax_runner_prepares_runs_and_collects(
     assert "ENCUT = 300" in incar
     for tag in ("EDIFF", "EDIFFG", "MAGMOM", "NBANDS"):
         assert f"{tag} = " in incar
-    assert (workdir / "KPOINTS").read_text(encoding="utf-8").splitlines()[
-        2
-    ] == "Monkhorst-Pack"
+    assert (workdir / "KPOINTS").read_text(encoding="utf-8").splitlines()[2] == "Monkhorst-Pack"
 
     # The run happened once, was classified, and its energy is job state.
     state = _job_state(payload)
@@ -247,20 +241,13 @@ def test_the_packaged_relax_runner_prepares_runs_and_collects(
     # And the finished calculation was published as transactional data.
     published = _files(payload / "data")
     assert published == [f"vasp/{name}" for name in sorted(_COLLECTED)]
-    assert (
-        (payload / "data" / "vasp" / "CONTCAR")
-        .read_text(encoding="utf-8")
-        .splitlines()[-1]
-        .startswith("0.51")
-    )
+    assert (payload / "data" / "vasp" / "CONTCAR").read_text(encoding="utf-8").splitlines()[-1].startswith("0.51")
 
 
 def test_a_diagnosed_failure_is_remedied_and_the_rerun_succeeds(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    workspace, job_id = _campaign(
-        tmp_path / "remedy", monkeypatch, "vasp-relax", fail_once=True
-    )
+    workspace, job_id = _campaign(tmp_path / "remedy", monkeypatch, "vasp-relax", fail_once=True)
 
     kind, payload = _payload_of(workspace, job_id)
     assert kind == "succeeded"
@@ -276,9 +263,7 @@ def test_a_diagnosed_failure_is_remedied_and_the_rerun_succeeds(
 
     # The ladder itself is job state, outside every workdir, so an isolated workdir
     # would find it too.
-    history = json.loads(
-        (payload / ".httk-job" / "vasp-remedies.json").read_text(encoding="utf-8")
-    )
+    history = json.loads((payload / ".httk-job" / "vasp-remedies.json").read_text(encoding="utf-8"))
     assert history["attempts"] == {"zpotrf": 1}
     assert history["events"][0]["problem"] == "zpotrf"
     assert history["events"][0]["files"][0]["path"] == "POSCAR"
@@ -292,7 +277,9 @@ def test_zhegv_manager_retries_each_rung_and_stops(
     # Simulate acceptance of the edited inputs, not VASP's eigensolver physics.
     executable = tmp_path / "zhegv-vasp"
     source = _FAKE_VASP.format(fail_once=False, static_energy=-10.5)
-    condition = f"{recovery == 'never'!r} or tags.get('NPAR') != '1' or ({recovery == 'bands'!r} and int(tags['NBANDS']) < 8)"
+    condition = (
+        f"{recovery == 'never'!r} or tags.get('NPAR') != '1' or ({recovery == 'bands'!r} and int(tags['NBANDS']) < 8)"
+    )
     source = source.replace(
         "if FAIL_ONCE and count == 0:",
         "from httk.workflow.vasp import read_incar\n"
@@ -317,19 +304,14 @@ def test_zhegv_manager_retries_each_rung_and_stops(
     )
     kind, payload = _payload_of(workspace, job_id)
     assert kind == ("failed" if recovery == "never" else "succeeded")
-    inputs = [
-        json.loads(line)
-        for line in (payload / "run" / "fake-inputs.jsonl").read_text().splitlines()
-    ]
+    inputs = [json.loads(line) for line in (payload / "run" / "fake-inputs.jsonl").read_text().splitlines()]
     expected = [("32", "6"), ("1", "6")]
     if recovery != "decomposition":
         expected.append(("1", "8"))
     assert [(tags["NPAR"], tags["NBANDS"]) for tags in inputs] == expected
     history = json.loads((payload / ".httk-job" / "vasp-remedies.json").read_text())
     assert history["attempts"] == {"edddav_zhegv": len(expected) - 1}
-    assert [event["step"] for event in history["events"]] == list(
-        range(len(expected) - 1)
-    )
+    assert [event["step"] for event in history["events"]] == list(range(len(expected) - 1))
     assert all(event["files"][0]["path"] == "INCAR" for event in history["events"])
     if recovery == "never":
         failure = _failure(workspace, job_id)
@@ -364,21 +346,14 @@ def test_the_bash_runner_and_the_python_runner_publish_the_same_result(
         state = _job_state(payload)
         state["energy"] = round(float(str(state["energy"])), 9)
         history = payload / ".httk-job" / "vasp-remedies.json"
-        ladder = (
-            {}
-            if not history.is_file()
-            else json.loads(history.read_text(encoding="utf-8"))["attempts"]
-        )
+        ladder = {} if not history.is_file() else json.loads(history.read_text(encoding="utf-8"))["attempts"]
         observed[directory] = {
             "kind": kind,
             "state": state,
             "ladder": ladder,
             "workdir": _files(payload / "run"),
             "data": _files(payload / "data"),
-            "inputs": [
-                (payload / "run" / name).read_text(encoding="utf-8")
-                for name in ("INCAR", "KPOINTS", "POSCAR")
-            ],
+            "inputs": [(payload / "run" / name).read_text(encoding="utf-8") for name in ("INCAR", "KPOINTS", "POSCAR")],
             "outputs": [
                 (payload / "data" / "vasp" / name).read_text(encoding="utf-8")
                 for name in ("CONTCAR", "OUTCAR", "OSZICAR")
@@ -400,21 +375,15 @@ def test_the_bash_vasp_runner_uses_the_workspace_command_setting(
         tmp_path / "settings-command",
         monkeypatch,
         "vasp-relax-bash",
-        workspace_settings={
-            "vasp.command": str(tmp_path / "settings-command" / "fake-vasp")
-        },
+        workspace_settings={"vasp.command": str(tmp_path / "settings-command" / "fake-vasp")},
         set_command_environment=False,
     )
 
     assert _payload_of(workspace, job_id)[0] == "succeeded"
 
 
-def test_a_job_with_no_configured_vasp_command_fails_by_name(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    workspace, job_id = _campaign(
-        tmp_path / "nocommand", monkeypatch, "vasp-relax", command=""
-    )
+def test_a_job_with_no_configured_vasp_command_fails_by_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    workspace, job_id = _campaign(tmp_path / "nocommand", monkeypatch, "vasp-relax", command="")
 
     kind, _ = _payload_of(workspace, job_id)
     assert kind == "failed"
@@ -447,14 +416,10 @@ def test_a_package_directory_refuses_a_job_missing_its_required_input(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with pytest.raises(ValueError, match=r"workflow input 'structure' is required"):
-        _campaign(
-            tmp_path / "nostructure-dir", monkeypatch, "vasp-relax", files=("INCAR",)
-        )
+        _campaign(tmp_path / "nostructure-dir", monkeypatch, "vasp-relax", files=("INCAR",))
 
 
-def test_the_static_runner_switches_off_the_ionic_loop(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_the_static_runner_switches_off_the_ionic_loop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     workspace, job_id = _campaign(
         tmp_path / "static",
         monkeypatch,
@@ -466,14 +431,10 @@ def test_the_static_runner_switches_off_the_ionic_loop(
     assert kind == "succeeded"
     tags = (payload / "run" / "INCAR").read_text(encoding="utf-8")
     assert "NSW = 0" in tags and "IBRION = -1" in tags
-    assert _files(payload / "data") == [
-        f"single-point/{name}" for name in sorted(_COLLECTED)
-    ]
+    assert _files(payload / "data") == [f"single-point/{name}" for name in sorted(_COLLECTED)]
 
 
-def test_the_chain_runner_relaxes_promotes_and_runs_statically(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_the_chain_runner_relaxes_promotes_and_runs_statically(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     workspace, job_id = _campaign(tmp_path / "chain", monkeypatch, "vasp-relax-static")
 
     kind, payload = _payload_of(workspace, job_id)
@@ -495,18 +456,13 @@ def test_the_chain_runner_relaxes_promotes_and_runs_statically(
 
     published = _files(payload / "data")
     assert published == sorted(
-        [f"relax/{name}" for name in _COLLECTED]
-        + [f"static/{name}" for name in _COLLECTED],
+        [f"relax/{name}" for name in _COLLECTED] + [f"static/{name}" for name in _COLLECTED],
     )
     assert (workdir / "fake-vasp-attempts").read_text(encoding="utf-8") == "2"
 
 
-@pytest.mark.parametrize(
-    "directory", ("vasp-relax", "vasp-relax-bash", "vasp-static", "vasp-relax-static")
-)
-@pytest.mark.parametrize(
-    "data_mode", (None, "transactional"), ids=("default-none", "transactional-opt-in")
-)
+@pytest.mark.parametrize("directory", ("vasp-relax", "vasp-relax-bash", "vasp-static", "vasp-relax-static"))
+@pytest.mark.parametrize("data_mode", (None, "transactional"), ids=("default-none", "transactional-opt-in"))
 def test_vasp_cli_runs_and_collects_default_workdir_or_transactional_results(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -516,14 +472,10 @@ def test_vasp_cli_runs_and_collects_default_workdir_or_transactional_results(
     test_profile,
 ) -> None:
     if not test_profile.extended and data_mode == "transactional":
-        pytest.skip(
-            "the transactional-opt-in half of this matrix only runs under HTTK_TEST_PROFILE=extended"
-        )
+        pytest.skip("the transactional-opt-in half of this matrix only runs under HTTK_TEST_PROFILE=extended")
 
     atomistic = cast(Any, pytest.importorskip("httk.atomistic"))
-    atomistic_structures = cast(
-        Any, pytest.importorskip("httk.atomistic.entries.structures")
-    )
+    atomistic_structures = cast(Any, pytest.importorskip("httk.atomistic.entries.structures"))
     store_module = cast(Any, pytest.importorskip("httk.store"))
     UnitcellStructureView = atomistic.UnitcellStructureView
     StructureEntry = atomistic_structures.StructureEntry
@@ -583,22 +535,14 @@ def test_vasp_cli_runs_and_collects_default_workdir_or_transactional_results(
         for filename in _COLLECTED:
             assert list(payload.rglob(filename)) == [payload / "run" / filename]
     if data_mode == "transactional":
-        prefixes = (
-            ("relax", "static") if directory == "vasp-relax-static" else ("vasp",)
-        )
-        assert _files(payload / "data") == sorted(
-            f"{prefix}/{file}" for prefix in prefixes for file in _COLLECTED
-        )
+        prefixes = ("relax", "static") if directory == "vasp-relax-static" else ("vasp",)
+        assert _files(payload / "data") == sorted(f"{prefix}/{file}" for prefix in prefixes for file in _COLLECTED)
 
     # No process-wide registered provider names these package-directory
     # workflows any more (the built-in ones are gone); collect them from the
     # digest-verified, job-pinned workspace runner tree new_job published instead.
     (item,) = collect(workspace, fail_fast=True, allow_job_collector=True)
-    roles = (
-        {"total_energy"}
-        if directory == "vasp-static"
-        else {"relaxed_structure", "total_energy"}
-    )
+    roles = {"total_energy"} if directory == "vasp-static" else {"relaxed_structure", "total_energy"}
     energy = -11.5 if directory in ("vasp-static", "vasp-relax-static") else -10.5
     assert set(item.outputs) == roles
     assert not item.unfulfilled
@@ -610,9 +554,7 @@ def test_vasp_cli_runs_and_collects_default_workdir_or_transactional_results(
     if "relaxed_structure" in roles:
         relaxed = item.outputs["relaxed_structure"]
         assert isinstance(relaxed, UnitcellStructureView)
-        assert float(cast(Any, relaxed).sites.reduced_coords[1][0]) == pytest.approx(
-            0.51
-        )
+        assert float(cast(Any, relaxed).sites.reduced_coords[1][0]) == pytest.approx(0.51)
 
     for into in (False, True):
         args = ["collect", "--workspace", name, "--allow-job-collector"]
@@ -625,9 +567,7 @@ def test_vasp_cli_runs_and_collects_default_workdir_or_transactional_results(
                 "--no-id-ledger",
             ]
         assert command(args, context) == 0
-        report, summary = [
-            json.loads(line) for line in capsys.readouterr().out.splitlines()
-        ]
+        report, summary = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
         assert report["job_key"] == key
         assert set(report["outputs"]) == roles
         assert report["unfulfilled"] == []
@@ -663,12 +603,7 @@ def test_vasp_cli_runs_and_collects_default_workdir_or_transactional_results(
             result = run_postprocess_script(provider, script, item.record)
             assert result.returncode == 0, result.stderr
             if script == "relaxation-report":
-                report = json.loads(
-                    (result.output_dir / "relaxation_report.json").read_text()
-                )
+                report = json.loads((result.output_dir / "relaxation_report.json").read_text())
                 assert report["final_energy"] == pytest.approx(energy)
             else:
-                assert (
-                    f"{energy:.8f} eV"
-                    in (result.output_dir / "relaxation_energies.svg").read_text()
-                )
+                assert f"{energy:.8f} eV" in (result.output_dir / "relaxation_energies.svg").read_text()

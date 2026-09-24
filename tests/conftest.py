@@ -24,9 +24,7 @@ for _thread_limit in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREAD
 
 
 @pytest.fixture(autouse=True)
-def _isolated_httk_config(
-    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def _isolated_httk_config(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
     """Give every test its own httk config and data home.
 
     This keeps the global workspace registry (``$XDG_CONFIG_HOME/httk/workspaces.json``)

@@ -79,9 +79,7 @@ def _record(root: Path) -> JobRecord:
 
 def _write(root: Path, name: str) -> None:
     root.mkdir(parents=True, exist_ok=True)
-    (root / name).write_text(
-        _CONTCAR if name == "CONTCAR" else _OUTCAR, encoding="utf-8"
-    )
+    (root / name).write_text(_CONTCAR if name == "CONTCAR" else _OUTCAR, encoding="utf-8")
 
 
 def test_packaged_relaxation_report_runs_from_published_data(tmp_path: Path) -> None:
@@ -94,14 +92,10 @@ def test_packaged_relaxation_report_runs_from_published_data(tmp_path: Path) -> 
 
     result = run_postprocess_script(workflow, "relaxation-report", _record(tmp_path))
     assert result.returncode == 0
-    report = json.loads(
-        (result.output_dir / "relaxation_report.json").read_text(encoding="utf-8")
-    )
+    report = json.loads((result.output_dir / "relaxation_report.json").read_text(encoding="utf-8"))
     assert report["final_energy"] == pytest.approx(-27.09328752)
     assert report["structure_files"] == ["vasp/CONTCAR"]
-    assert "vasp/CONTCAR" in (result.output_dir / "relaxation_report.txt").read_text(
-        encoding="utf-8"
-    )
+    assert "vasp/CONTCAR" in (result.output_dir / "relaxation_report.txt").read_text(encoding="utf-8")
 
 
 def test_packaged_relaxation_plot_runs_from_published_data(tmp_path: Path) -> None:

@@ -17,9 +17,7 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-_SCHEMA_ROOT = (
-    REPO_ROOT.parent / "httk-schemas-source" / "output" / "defs" / "v0.1" / "workflows"
-)
+_SCHEMA_ROOT = REPO_ROOT.parent / "httk-schemas-source" / "output" / "defs" / "v0.1" / "workflows"
 
 # vasp-relax-bash is the same relaxation authored in Bash: its manifest points
 # at vasp-relax's declaration_uri and ships the identical declaration.json.
@@ -37,12 +35,6 @@ _DIRECTORY_TO_SOURCE_NAME = {
 )
 @pytest.mark.parametrize("directory", sorted(_DIRECTORY_TO_SOURCE_NAME))
 def test_package_declaration_equals_published_schema_source(directory: str) -> None:
-    declared = json.loads(
-        (REPO_ROOT / directory / "declaration.json").read_text(encoding="utf-8")
-    )
-    expected = json.loads(
-        (_SCHEMA_ROOT / f"{_DIRECTORY_TO_SOURCE_NAME[directory]}.json").read_text(
-            encoding="utf-8"
-        )
-    )
+    declared = json.loads((REPO_ROOT / directory / "declaration.json").read_text(encoding="utf-8"))
+    expected = json.loads((_SCHEMA_ROOT / f"{_DIRECTORY_TO_SOURCE_NAME[directory]}.json").read_text(encoding="utf-8"))
     assert declared == expected
