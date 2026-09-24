@@ -1,5 +1,5 @@
 [workflow]
-id = "vasp.relax-static"
+name = "vasp.relax-static"
 description = "relax, promote the relaxed structure, then run it statically"
 declaration_uri = "https://schemas.httk.org/defs/v0.1/workflows/vasp-relax-static"
 declaration_file = "declaration.json"

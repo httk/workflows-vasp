@@ -1,5 +1,5 @@
 [workflow]
-id = "vasp.relax"
+name = "vasp.relax"
 description = "relax one structure with the reviewed remedy ladder"
 declaration_uri = "https://schemas.httk.org/defs/v0.1/workflows/vasp-relax"
 declaration_file = "declaration.json"

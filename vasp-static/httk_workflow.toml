@@ -1,5 +1,5 @@
 [workflow]
-id = "vasp.static"
+name = "vasp.static"
 description = "one single-point calculation of one structure"
 declaration_uri = "https://schemas.httk.org/defs/v0.1/workflows/vasp-static"
 declaration_file = "declaration.json"

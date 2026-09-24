@@ -1,5 +1,5 @@
 [workflow]
-id = "vasp.relax-bash"
+name = "vasp.relax-bash"
 description = "the same relaxation, authored in Bash"
 declaration_uri = "https://schemas.httk.org/defs/v0.1/workflows/vasp-relax"
 declaration_file = "declaration.json"
