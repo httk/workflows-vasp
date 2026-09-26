@@ -25,7 +25,7 @@ for _thread_limit in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREAD
 
 @pytest.fixture(autouse=True)
 def _isolated_httk_config(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Give every test its own httk config and data home.
+    """Give every test its own httk config and data home, and no ambient VASP command.
 
     This keeps the global workspace registry (``$XDG_CONFIG_HOME/httk/workspaces.json``)
     from leaking between tests or into the developer's real configuration.
@@ -33,6 +33,8 @@ def _isolated_httk_config(tmp_path_factory: pytest.TempPathFactory, monkeypatch:
 
     monkeypatch.setenv("HTTK_CONFIG_HOME", str(tmp_path_factory.mktemp("httk-config")))
     monkeypatch.setenv("HTTK_DATA_HOME", str(tmp_path_factory.mktemp("httk-store")))
+    # A machine exporting a real VASP command must never run it from a test.
+    monkeypatch.delenv("HTTK_VASP_COMMAND", raising=False)
 
 
 @pytest.fixture(autouse=True)
