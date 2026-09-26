@@ -392,6 +392,16 @@ def test_a_job_with_no_configured_vasp_command_fails_by_name(tmp_path: Path, mon
     assert "HTTK_VASP_COMMAND" in failure["message"]
 
 
+def test_a_vasp_command_that_cannot_start_fails_by_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    missing = tmp_path / "no-such-vasp"
+    workspace, job_id = _campaign(tmp_path / "unstartable", monkeypatch, "vasp-relax", command=str(missing))
+
+    assert _payload_of(workspace, job_id)[0] == "failed"
+    failure = _failure(workspace, job_id)
+    assert failure["code"] == "vasp.failed"
+    assert failure["message"].startswith("could not run VASP at all: ")
+
+
 def test_a_job_whose_structure_is_not_in_its_payload_fails_by_name(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

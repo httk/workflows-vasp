@@ -12,16 +12,17 @@ They use the `httk.workflow.vasp` helper library of an installed
 | `vasp-static` | `vasp.static` | One single-point total-energy calculation of a fixed structure. |
 | `vasp-relax-static` | `vasp.relax-static` | Relax, promote the relaxed structure, then run it statically. |
 
-Three of the four `run` files (`vasp-relax`, `vasp-static`, `vasp-relax-static`)
-are thin step declarations built on the Python VASP step API of
-`httk.workflow.vasp` (`httk.workflow.vasp.steps`): each step delegates to one
-library function — staging inputs, running VASP under the reviewed remedy
-ladder, promoting a relaxation to a single point, and publishing a stage — and
-only reads its own job parameters. `vasp-relax-bash` is the same relaxation
-authored in Bash against the sibling Bash VASP API. Each `collect.py` calls the
-matching `httk.workflow.vasp.collect` function. Running a job still requires an
+Each `run` file is a starting point to copy and edit: its steps spell out
+their work — reading the job parameters, staging inputs, building the
+preparation options, running VASP under supervision, planning and applying one
+remedy of the reviewed ladder, and publishing — directly on the primitives of
+`httk.workflow.vasp`. The three Python runners (`vasp-relax`, `vasp-static`,
+`vasp-relax-static`) are independent of each other and deliberately repeat
+that code; `vasp-relax-bash` is the same relaxation, step for step, in Bash
+against the sibling Bash VASP API. Each `collect.py` calls the matching
+`httk.workflow.vasp.collect` function. Running a job still requires an
 installed *httk-workflow*, since the runners import `httk.workflow.vasp` for
-inputs, remedies, diagnostics, steps, and collection.
+inputs, remedies, diagnostics, and collection.
 
 ## Job parameters
 

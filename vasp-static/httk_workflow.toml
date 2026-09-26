@@ -3,6 +3,7 @@ name = "vasp.static"
 description = "one single-point calculation of one structure"
 declaration_uri = "https://schemas.httk.org/defs/v0.1/workflows/vasp-static"
 declaration_file = "declaration.json"
+requires = ["httk-workflow>=2.1.1", "httk-atomistic>=2.1.2"]
 
 [workflow.runner]
 entry = "run"

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# One VASP relaxation, authored in Bash: the same workflow as vasp_relax.py.
+# One VASP relaxation, authored in Bash: the same workflow as the Python vasp-relax/run.
 #
 # The two runners implement one contract — the same workflow name, the same steps,
 # the same job inputs and parameters, the same job state, the same failure codes, and the same
@@ -36,7 +36,7 @@ step_prepare() {
     else
         : >INCAR
     fi
-    library=$(httk_workflow_parameter pseudopotential_library '')
+    library=$(httk_workflow_setting vasp.pseudo_library "$(httk_workflow_parameter pseudopotential_library '')")
     if [ "$library" = null ]; then
         library=
     fi
