@@ -5,7 +5,7 @@ Ported from httk-workflow's ``tests/test_vasp_collect.py`` (``git show
 ones that run this package's ``scripts/relaxation_report`` and
 ``scripts/relaxation_plot`` against a collected job record. The earlier tests
 of that file exercised the ``collect_vasp_*`` collector functions themselves,
-which stayed in httk-workflow's ``httk.workflow.vasp.collect`` module (still
+which stayed in httk-workflow's ``httk.workflow.codes.vasp.collect`` module (still
 covered by that module's own tests there); this file is only the packaged,
 directory-sourced side.
 

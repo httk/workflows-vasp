@@ -140,7 +140,7 @@ def _campaign(
 ) -> tuple[Workspace, str]:
     """Submit and run one job of one packaged workflow directory, and return where it landed.
 
-    ``bare_runner`` targets the directory's ``run`` file directly instead of the
+    ``bare_runner`` targets the directory's runner entry file directly instead of the
     package directory, which skips the manifest's declared-input checks (a bare
     runner file carries no input metadata) — used by the one test that means to
     reach the runner's own defensive "missing input" check instead.
@@ -161,7 +161,11 @@ def _campaign(
             path = staged / name
             path.write_text(content, encoding="utf-8")
             stage[name] = path
-    target = REPO_ROOT / directory / "run" if bare_runner else REPO_ROOT / directory
+    target = (
+        REPO_ROOT / directory / ("run.sh" if directory == "vasp-relax-bash" else "run.py")
+        if bare_runner
+        else REPO_ROOT / directory
+    )
     job = new_job(
         workspace,
         target,
@@ -282,7 +286,7 @@ def test_zhegv_manager_retries_each_rung_and_stops(
     )
     source = source.replace(
         "if FAIL_ONCE and count == 0:",
-        "from httk.workflow.vasp import read_incar\n"
+        "from httk.workflow.codes.vasp import read_incar\n"
         "tags = read_incar('INCAR')\n"
         "import json\n"
         "with Path('fake-inputs.jsonl').open('a') as stream:\n"

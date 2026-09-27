@@ -2,7 +2,7 @@
 
 This repository is the home of the *httk₂* VASP workflows, one self-contained
 workflow package directory per workflow, referenced directly by a git commit.
-They use the `httk.workflow.vasp` helper library of an installed
+They use the `httk.workflow.codes.vasp` helper library of an installed
 *httk-workflow*.
 
 | Directory | Short name | What it does |
@@ -12,17 +12,18 @@ They use the `httk.workflow.vasp` helper library of an installed
 | `vasp-static` | `vasp.static` | One single-point total-energy calculation of a fixed structure. |
 | `vasp-relax-static` | `vasp.relax-static` | Relax, promote the relaxed structure, then run it statically. |
 
-Each `run` file is a starting point to copy and edit: its steps spell out
-their work — reading the job parameters, staging inputs, building the
-preparation options, running VASP under supervision, planning and applying one
-remedy of the reviewed ladder, and publishing — directly on the primitives of
-`httk.workflow.vasp`. The three Python runners (`vasp-relax`, `vasp-static`,
-`vasp-relax-static`) are independent of each other and deliberately repeat
-that code; `vasp-relax-bash` is the same relaxation, step for step, in Bash
-against the sibling Bash VASP API. Each `collect.py` calls the matching
-`httk.workflow.vasp.collect` function. Running a job still requires an
-installed *httk-workflow*, since the runners import `httk.workflow.vasp` for
-inputs, remedies, diagnostics, and collection.
+Each runner entry (`run.py`, or `run.sh` in `vasp-relax-bash`) is a starting
+point to copy and edit: its steps spell out their work — reading the job
+parameters, staging inputs, building the preparation options, running VASP
+under supervision, planning and applying one remedy of the reviewed ladder, and
+publishing — directly on the primitives of `httk.workflow.codes.vasp`. The
+three Python runners (`vasp-relax`, `vasp-static`, `vasp-relax-static`) are
+independent of each other and deliberately repeat that code; `vasp-relax-bash`
+is the same relaxation, step for step, in Bash against the sibling Bash VASP
+API. Each `collect.py` calls the matching `httk.workflow.codes.vasp.collect`
+function. Running a job still requires an installed *httk-workflow*, since the
+runners import `httk.workflow.codes.vasp` for inputs, remedies, diagnostics,
+and collection.
 
 ## Job parameters
 
@@ -41,7 +42,7 @@ strings, so the Bash runner and the Python runners read one contract.
   library, one directory per variant.
 * `kpoint_density` (default `20.0`), `centering` (default `Monkhorst-Pack`),
   `accuracy_per_atom` (default `0.001`) — passed to
-  `httk.workflow.vasp.inputs.VaspPreparationOptions`.
+  `httk.workflow.codes.vasp.inputs.VaspPreparationOptions`.
 * `parallel_tag` and `parallel_value` (default none) — one of `NPAR`, `NCORE`,
   or `KPAR`, and its value.
 * `incar_tags` (default empty) — explicit INCAR tags. They are applied before
@@ -55,7 +56,7 @@ strings, so the Bash runner and the Python runners read one contract.
   total before it fails. The ladder is bounded per problem as well.
 * `remedy_policy` (default `reviewed-v1`) — the registered remedy policy the
   runner plans with, so a group with its own reviewed practice registers a
-  policy with `httk.workflow.vasp.register_remedy_policy` and names it here
+  policy with `httk.workflow.codes.vasp.register_remedy_policy` and names it here
   instead of editing a runner.
 * `rattle_amplitude` (default `0.0`) — when positive, the POSCAR is rattled by
   this amplitude after every applied remedy, with a seed derived from the

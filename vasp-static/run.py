@@ -1,26 +1,19 @@
 #!/usr/bin/env python3
-"""One relaxation followed by one static calculation, chained in one job.
+"""One single-point VASP calculation of a structure that is already chosen.
 
-The five steps are the whole workflow, spelled out on the ``httk.workflow.vasp``
-primitives so that this file is a starting point to copy and edit: ``prepare``
-and ``run`` are the relaxation, ``promote`` archives the relaxation, makes its
-CONTCAR the new structure, and re-derives the inputs for a single point,
-``static`` runs that single point (the same handler as ``run``), and ``publish``
-publishes both stages — the relaxation under ``relax/`` and the single point
-under ``static/``.
+The workflow is the relaxation workflow with the ionic loop switched off, spelled
+out on the ``httk.workflow.codes.vasp`` primitives so that this file is a starting
+point to copy and edit: ``prepare`` stages the structure and the INCAR of the job
+payload and adds the static tags — ``IBRION = -1`` and ``NSW = 0`` unless the job
+says otherwise — ``run`` executes VASP with the reviewed remedy ladder, and
+``publish`` publishes the result. The structure may be a POSCAR or the CONTCAR of
+an earlier relaxation, staged as an input file of this job and named by the
+``poscar`` input.
 
-This is the *httk* v1 formation-energy template without its database half: a
-formation energy is assembled at job_records time from the total energies of several
-such jobs and the elemental references they are compared against, which is an
-analysis over finished jobs rather than a step of one job. What this runner
-guarantees is the pair of numbers that assembly needs — one relaxed structure and
-one total energy of it, both with the evidence of how they were produced.
-
-Both stages share one job: one remedy budget, one remedy ladder, one workdir. The
-job inputs and parameters are documented in this repository's README. Nothing here
-imports anything but an installed *httk-workflow*, so this one file is the whole
-runner: it is the entry of this package directory, reference it by git URI
-(e.g. ``git+https://github.com/httk/workflows-vasp#vasp-relax-static``) or with
+The job inputs and parameters are documented in this repository's README. Nothing
+here imports anything but an installed *httk-workflow*, so this one file is the
+whole runner: it is the entry of this package directory, reference it by git URI
+(e.g. ``git+https://github.com/httk/workflows-vasp#vasp-static``) or with
 ``--workflow-dir``, publish it to a workspace runner store, or copy it and edit it.
 """
 
@@ -28,11 +21,10 @@ import shlex
 import shutil
 
 from httk.workflow import Attempt, Runner
-from httk.workflow.vasp import (
+from httk.workflow.codes.vasp import (
     VaspPreparationOptions,
     apply_vasp_remedy,
     clean_vasp_outputs,
-    contcar_to_poscar,
     job_remedy_history_path,
     last_oszicar_energy,
     plan_vasp_remedy,
@@ -46,17 +38,15 @@ COLLECT = "INCAR KPOINTS OUTCAR CONTCAR OSZICAR vasprun.xml vasp-run-report.json
 # Kept across a remedied rerun: they make the rerun cheaper, and VASP overwrites
 # them itself when it reuses them.
 KEEP_BETWEEN_RUNS = ("WAVECAR", "CHGCAR", "CHG")
-# What makes the second stage a single point: no ionic step, and no ionic loop.
+# What makes this a single point: no ionic step, and no ionic loop.
 STATIC_TAGS = {"IBRION": -1, "NSW": 0}
-# Where the relaxation is archived inside the workdir before it is overwritten.
-RELAX_ARCHIVE = "relax"
 
-run = Runner("vasp.relax-static")
+run = Runner("vasp.static")
 
 
 @run.step
 def prepare(a: Attempt) -> None:
-    """Stage the payload inputs, derive the rest, and go on to relax."""
+    """Stage the payload inputs, switch off relaxation, and go on to run VASP."""
 
     validate_vasp_workdir(a.workdir)
     poscar = a.payload / a.parameter("poscar", "files/POSCAR")
@@ -87,17 +77,16 @@ def prepare(a: Attempt) -> None:
         pseudopotential_library=library,
         parallel_tag=a.parameter("parallel_tag", None) or None,
         parallel_value=None if parallel_value is None else int(parallel_value),
-        incar_tags=dict(a.parameter("incar_tags", {}) or {}),
+        incar_tags={**(a.parameter("static_incar_tags", {}) or STATIC_TAGS), **(a.parameter("incar_tags", {}) or {})},
     )
     prepare_vasp_inputs(options, directory=a.workdir)
-    a.log.append("note", "prepared a vasp.relax-static calculation")
+    a.log.append("note", "prepared a vasp.static calculation")
     a.advance("run")
 
 
-@run.step(name="static")
 @run.step(name="run")
 def run_step(a: Attempt) -> None:
-    """Run VASP (the relaxation, then the single point), remedy, or fail."""
+    """Run VASP, remedy a recognized failure, or fail with what was diagnosed."""
 
     # vasp.command resolves the job parameter, HTTK_VASP_COMMAND, then the workspace setting.
     argv = shlex.split(a.setting("vasp.command", a.parameter("vasp_command", None)) or "")
@@ -123,7 +112,7 @@ def run_step(a: Attempt) -> None:
     if energy is not None:
         state["energy"] = energy
     if report.classification == "completed":
-        a.advance("promote" if a.step == "run" else "publish", state=state)
+        a.advance("publish", state=state)
         return
 
     applied = int(a.state.get("remedies", 0))
@@ -163,60 +152,22 @@ def run_step(a: Attempt) -> None:
 
 
 @run.step
-def promote(a: Attempt) -> None:
-    """Archive the relaxation, adopt its CONTCAR, and derive the static inputs."""
+def publish(a: Attempt) -> None:
+    """Publish the finished calculation and complete the job."""
 
-    contcar = a.workdir / "CONTCAR"
-    if not contcar.is_file() or not contcar.read_text(encoding="utf-8", errors="replace").strip():
-        a.fail("vasp.no_relaxed_structure", "the relaxation completed without leaving a CONTCAR to run statically")
-        return
-    archive = a.workdir / RELAX_ARCHIVE
-    archive.mkdir(exist_ok=True)
+    prefix = a.parameter("data_prefix", "vasp") or ""
+    transactional = a.context.data_generation is not None
+    published = []
     for name in (a.parameter("collect", COLLECT) or "").split():
         if (a.workdir / name).is_file():
-            shutil.copyfile(a.workdir / name, archive / name)
-    # The relaxed cell is the structure of the single point; the reference POSCAR
-    # only lends it its comment line, which carries the MAGMOM override.
-    contcar_to_poscar(contcar, reference=a.workdir / "POSCAR", output=a.workdir / "POSCAR")
-    # Re-derived rather than reused: the relaxed cell has its own k-point grid and
-    # convergence budget. Tags the relaxation already fixed — NBANDS, MAGMOM — stay.
-    parallel_value = a.parameter("parallel_value", None)
-    options = VaspPreparationOptions(
-        kpoint_density=float(a.parameter("kpoint_density", 20.0) or 20.0),
-        centering=a.parameter("centering", VaspPreparationOptions.centering),
-        accuracy_per_atom=a.parameter("accuracy_per_atom", 0.001),
-        parallel_tag=a.parameter("parallel_tag", None) or None,
-        parallel_value=None if parallel_value is None else int(parallel_value),
-        incar_tags={**(a.parameter("static_incar_tags", {}) or STATIC_TAGS), **(a.parameter("incar_tags", {}) or {})},
-    )
-    prepare_vasp_inputs(options, directory=a.workdir)
-    a.log.append("note", "promoted the relaxed structure to a static calculation")
-    a.advance(
-        "static",
-        state={"relax_energy": a.state.get("energy"), "relax_classification": a.state.get("classification")},
-    )
-
-
-@run.step
-def publish(a: Attempt) -> None:
-    """Publish both stages and complete the job."""
-
-    base = a.parameter("data_prefix", "") or ""
-    transactional = a.context.data_generation is not None
-    for stage, directory in (("static", a.workdir), (RELAX_ARCHIVE, a.workdir / RELAX_ARCHIVE)):
-        prefix = f"{base}/{stage}" if base else stage
-        published = []
-        for name in (a.parameter("collect", COLLECT) or "").split():
-            if (directory / name).is_file():
-                if transactional:
-                    a.put(directory / name, f"{prefix}/{name}")
-                published.append(name)
-        if transactional:
-            a.log.append("note", f"published to data/{prefix}: {', '.join(published) or 'nothing'}")
-        else:
-            # Without transactional data the persistent workdir is the result.
-            a.log.append("note", f"kept in the workdir: {', '.join(published) or 'nothing'}")
-    a.state["static_energy"] = a.state.get("energy")
+            if transactional:
+                a.put(a.workdir / name, f"{prefix}/{name}")
+            published.append(name)
+    if transactional:
+        a.log.append("note", f"published to data/{prefix}: {', '.join(published) or 'nothing'}")
+    else:
+        # Without transactional data the persistent workdir is the result.
+        a.log.append("note", f"kept in the workdir: {', '.join(published) or 'nothing'}")
     a.succeed()
 
 

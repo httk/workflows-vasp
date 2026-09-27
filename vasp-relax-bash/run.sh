@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# One VASP relaxation, authored in Bash: the same workflow as the Python vasp-relax/run.
+# One VASP relaxation, authored in Bash: the same workflow as the Python vasp-relax/run.py.
 #
 # The two runners implement one contract — the same workflow name, the same steps,
 # the same job inputs and parameters, the same job state, the same failure codes, and the same

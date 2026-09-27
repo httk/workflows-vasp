@@ -1,6 +1,6 @@
 """Collect hook for the packaged ``vasp.relax-static`` workflow."""
 
-from httk.workflow.vasp.collect import collect_vasp_relax_static
+from httk.workflow.codes.vasp.collect import collect_vasp_relax_static
 
 
 def collect(record):

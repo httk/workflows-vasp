@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-"""One single-point VASP calculation of a structure that is already chosen.
+"""One VASP relaxation: prepare inputs, run with remedies, publish the result.
 
-The workflow is the relaxation workflow with the ionic loop switched off, spelled
-out on the ``httk.workflow.vasp`` primitives so that this file is a starting
-point to copy and edit: ``prepare`` stages the structure and the INCAR of the job
-payload and adds the static tags — ``IBRION = -1`` and ``NSW = 0`` unless the job
-says otherwise — ``run`` executes VASP with the reviewed remedy ladder, and
-``publish`` publishes the result. The structure may be a POSCAR or the CONTCAR of
-an earlier relaxation, staged as an input file of this job and named by the
-``poscar`` input.
+The three steps are the whole workflow, spelled out on the ``httk.workflow.codes.vasp``
+primitives so that this file is a starting point to copy and edit. ``prepare``
+stages the structure and the INCAR of the job payload into the workdir and
+derives everything else; ``run`` executes VASP under supervision and, when the
+run fails in a way the reviewed remedy ladder recognizes, applies exactly one
+remedy and asks for another attempt; ``publish`` publishes the files that
+describe the finished calculation. ``vasp-relax-bash`` is the same workflow in
+Bash, step for step.
 
 The job inputs and parameters are documented in this repository's README. Nothing
 here imports anything but an installed *httk-workflow*, so this one file is the
 whole runner: it is the entry of this package directory, reference it by git URI
-(e.g. ``git+https://github.com/httk/workflows-vasp#vasp-static``) or with
+(e.g. ``git+https://github.com/httk/workflows-vasp#vasp-relax``) or with
 ``--workflow-dir``, publish it to a workspace runner store, or copy it and edit it.
 """
 
@@ -21,7 +21,7 @@ import shlex
 import shutil
 
 from httk.workflow import Attempt, Runner
-from httk.workflow.vasp import (
+from httk.workflow.codes.vasp import (
     VaspPreparationOptions,
     apply_vasp_remedy,
     clean_vasp_outputs,
@@ -38,15 +38,13 @@ COLLECT = "INCAR KPOINTS OUTCAR CONTCAR OSZICAR vasprun.xml vasp-run-report.json
 # Kept across a remedied rerun: they make the rerun cheaper, and VASP overwrites
 # them itself when it reuses them.
 KEEP_BETWEEN_RUNS = ("WAVECAR", "CHGCAR", "CHG")
-# What makes this a single point: no ionic step, and no ionic loop.
-STATIC_TAGS = {"IBRION": -1, "NSW": 0}
 
-run = Runner("vasp.static")
+run = Runner("vasp.relax")
 
 
 @run.step
 def prepare(a: Attempt) -> None:
-    """Stage the payload inputs, switch off relaxation, and go on to run VASP."""
+    """Stage the payload inputs, derive the rest, and go on to run VASP."""
 
     validate_vasp_workdir(a.workdir)
     poscar = a.payload / a.parameter("poscar", "files/POSCAR")
@@ -77,10 +75,10 @@ def prepare(a: Attempt) -> None:
         pseudopotential_library=library,
         parallel_tag=a.parameter("parallel_tag", None) or None,
         parallel_value=None if parallel_value is None else int(parallel_value),
-        incar_tags={**(a.parameter("static_incar_tags", {}) or STATIC_TAGS), **(a.parameter("incar_tags", {}) or {})},
+        incar_tags=dict(a.parameter("incar_tags", {}) or {}),
     )
     prepare_vasp_inputs(options, directory=a.workdir)
-    a.log.append("note", "prepared a vasp.static calculation")
+    a.log.append("note", "prepared a vasp.relax calculation")
     a.advance("run")
 
 

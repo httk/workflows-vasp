@@ -6,7 +6,7 @@ declaration_file = "declaration.json"
 requires = ["httk-workflow>=2.1.1", "httk-atomistic>=2.1.2"]
 
 [workflow.runner]
-entry = "run"
+entry = "run.sh"
 steps = ["publish", "prepare", "run"]
 initial_step = "prepare"
 data_mode = "none"

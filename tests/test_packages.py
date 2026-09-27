@@ -4,7 +4,7 @@ Rewritten because the workflow used to compare each directory against a
 built-in ``httk.workflow.vasp.workflows.PROVIDERS`` entry; those built-in
 providers are gone now that the four workflows live only here. This checks
 each package against itself instead: it loads, its manifest steps equal the
-set of steps its own ``run`` file reports through ``--describe``, its
+set of steps its own runner entry (``run.py``, or ``run.sh`` for Bash) reports through ``--describe``, its
 ``declarations["workflow"]`` equals the committed ``declaration.json``, its
 declared inputs/outputs/postprocess entries are well-formed, and the plugin
 manifest lists exactly the four directories.
@@ -20,20 +20,22 @@ from httk.workflow.packages import load_workflow_package
 from httk.workflow.scaffold import describe_runner
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-_DIRECTORIES = ("vasp-relax", "vasp-relax-bash", "vasp-static", "vasp-relax-static")
+_ENTRIES = {"vasp-relax": "run.py", "vasp-relax-bash": "run.sh", "vasp-static": "run.py", "vasp-relax-static": "run.py"}
+_DIRECTORIES = tuple(_ENTRIES)
 
 
 @pytest.mark.parametrize("directory", _DIRECTORIES)
 def test_package_loads(directory: str) -> None:
     provider = load_workflow_package(REPO_ROOT / directory, register=False)
     assert provider.directory == REPO_ROOT / directory
-    assert provider.entry == "run"
+    assert provider.command == (f"{{package}}/{_ENTRIES[directory]}",)
+    assert not (REPO_ROOT / directory / "run").exists()
 
 
 @pytest.mark.parametrize("directory", _DIRECTORIES)
 def test_package_steps_equal_the_runners_own_description(directory: str) -> None:
     provider = load_workflow_package(REPO_ROOT / directory, register=False)
-    described = describe_runner(REPO_ROOT / directory / "run")
+    described = describe_runner(REPO_ROOT / directory / _ENTRIES[directory])
     assert set(described["steps"]) == set(provider.steps)
     assert described["workflow"] == provider.workflow_id
 
@@ -74,8 +76,8 @@ def test_package_inputs_outputs_and_postprocess_entries_are_well_formed(
 
 
 @pytest.mark.parametrize("directory", _DIRECTORIES)
-def test_package_run_file_is_executable(directory: str) -> None:
-    assert os.access(REPO_ROOT / directory / "run", os.X_OK)
+def test_package_runner_entry_is_executable(directory: str) -> None:
+    assert os.access(REPO_ROOT / directory / _ENTRIES[directory], os.X_OK)
 
 
 def test_plugin_manifest_lists_exactly_the_four_directories() -> None:
