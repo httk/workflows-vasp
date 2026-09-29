@@ -2,7 +2,7 @@
 """One single-point VASP calculation of a structure that is already chosen.
 
 The workflow is the relaxation workflow with the ionic loop switched off, spelled
-out on the ``httk.workflow.codes.vasp`` primitives so that this file is a starting
+out on the ``httk.codes.vasp`` primitives so that this file is a starting
 point to copy and edit: ``prepare`` stages the structure and the INCAR of the job
 payload and adds the static tags — ``IBRION = -1`` and ``NSW = 0`` unless the job
 says otherwise — ``run`` executes VASP with the reviewed remedy ladder, and
@@ -20,8 +20,7 @@ whole runner: it is the entry of this package directory, reference it by git URI
 import shlex
 import shutil
 
-from httk.workflow import Attempt, Runner
-from httk.workflow.codes.vasp import (
+from httk.codes.vasp import (
     VaspPreparationOptions,
     apply_vasp_remedy,
     clean_vasp_outputs,
@@ -33,6 +32,7 @@ from httk.workflow.codes.vasp import (
     run_vasp,
     validate_vasp_workdir,
 )
+from httk.workflow import Attempt, Runner
 
 COLLECT = "INCAR KPOINTS OUTCAR CONTCAR OSZICAR vasprun.xml vasp-run-report.json POTCAR.provenance.json"
 # Kept across a remedied rerun: they make the rerun cheaper, and VASP overwrites

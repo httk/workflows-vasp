@@ -1,6 +1,6 @@
 """Collect hook for the packaged ``vasp.static`` workflow."""
 
-from httk.workflow.codes.vasp.collect import collect_vasp_static
+from httk.codes.vasp.collect import collect_vasp_static
 
 
 def collect(record):

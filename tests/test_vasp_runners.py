@@ -286,7 +286,7 @@ def test_zhegv_manager_retries_each_rung_and_stops(
     )
     source = source.replace(
         "if FAIL_ONCE and count == 0:",
-        "from httk.workflow.codes.vasp import read_incar\n"
+        "from httk.codes.vasp import read_incar\n"
         "tags = read_incar('INCAR')\n"
         "import json\n"
         "with Path('fake-inputs.jsonl').open('a') as stream:\n"
