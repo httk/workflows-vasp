@@ -1,12 +1,21 @@
-"""Collect hook for the packaged ``vasp.relax-bash`` workflow."""
+"""Collect hook for the packaged ``vasp.relax-bash`` workflow.
 
-from httk.codes.vasp.collect import collect_vasp_relax
+The relaxation leaves CONTCAR and OUTCAR in the persistent workdir; with
+transactional data, ``publish`` in ``run.sh`` also puts them under
+``data/<data_prefix>/``.
+"""
+
+from httk.codes.vasp.collect import job_parameter, read_structure, read_total_energy, result_file
 
 
 def collect(record):
-    """Extract the relaxed structure and final energy from the job record.
+    """Return the relaxed structure and the final energy of the relaxation.
 
     :param record: The collected job record.
     :return: Extracted output roles for the relaxation workflow.
     """
-    return collect_vasp_relax(record)
+    prefix = job_parameter(record, "data_prefix", "vasp")
+    return {
+        "relaxed_structure": read_structure(result_file(record, "CONTCAR", data_prefix=prefix)),
+        "total_energy": read_total_energy(result_file(record, "OUTCAR", data_prefix=prefix)),
+    }

@@ -4,10 +4,10 @@ Ported from httk-workflow's ``tests/test_vasp_collect.py`` (``git show
 15b0b36:tests/test_vasp_collect.py``), keeping only its last three tests: the
 ones that run this package's ``scripts/relaxation_report`` and
 ``scripts/relaxation_plot`` against a collected job record. The earlier tests
-of that file exercised the ``collect_vasp_*`` collector functions themselves,
-which now live in httk-workflow-vasp's ``httk.codes.vasp.collect`` module
-(still covered by that module's own tests there); this file is only the
-packaged, directory-sourced side.
+of that file exercised the collectors themselves; the packages' own
+``collect.py`` hooks are covered by ``test_collect_hooks.py``, and the
+``httk.codes.vasp.collect`` helpers they build on by httk-workflow-vasp's own
+tests.
 
 ``registered_workflow("vasp-relax")`` is gone along with the built-in
 provider, so the workflow here is resolved straight from the checked-out
