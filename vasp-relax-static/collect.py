@@ -6,7 +6,7 @@ static stage then runs in the workdir itself. With transactional data,
 ``data/<data_prefix>/static/``.
 """
 
-from httk.codes.vasp.collect import job_parameter, read_structure, read_total_energy, result_file
+from httk.codes.vasp.collect import read_structure, read_total_energy
 
 
 def collect(record):
@@ -15,9 +15,9 @@ def collect(record):
     :param record: The collected job record.
     :return: Extracted output roles from the relaxation and static stages.
     """
-    prefix = job_parameter(record, "data_prefix", "")
+    prefix = record.parameter("data_prefix", "") or ""
     return {
-        "relaxed_structure": read_structure(result_file(record, "relax/CONTCAR", data_prefix=prefix)),
+        "relaxed_structure": read_structure(record.result_file("relax/CONTCAR", data_prefix=prefix)),
         # Not relax/OUTCAR: the energy is the single point's, of the relaxed cell.
-        "total_energy": read_total_energy(result_file(record, "OUTCAR", data_prefix=prefix, published="static/OUTCAR")),
+        "total_energy": read_total_energy(record.result_file("OUTCAR", data_prefix=prefix, published="static/OUTCAR")),
     }

@@ -25,8 +25,8 @@ API.
 Each `collect.py` is just as explicit about where the results are: it names
 the files its workflow's outputs come from, both where the runner leaves them
 in the workdir and where `publish` puts them in transactional data, and reads
-them with the `result_file`, `read_structure` and `read_total_energy` helpers
-of `httk.codes.vasp.collect`. A copied runner that keeps more results — say,
+them with the `read_structure` and `read_total_energy` helpers of
+`httk.codes.vasp.collect`, locating the files with `record.result_file`. A copied runner that keeps more results — say,
 a second relaxation that archives the first one's CONTCAR — collects them by
 adding one line per output to its copied `collect.py` (and declaring the output
 in `httk_workflow.toml`). Running a job still requires an installed

@@ -5,7 +5,7 @@ transactional data, ``publish`` in ``run.sh`` also puts them under
 ``data/<data_prefix>/``.
 """
 
-from httk.codes.vasp.collect import job_parameter, read_structure, read_total_energy, result_file
+from httk.codes.vasp.collect import read_structure, read_total_energy
 
 
 def collect(record):
@@ -14,8 +14,8 @@ def collect(record):
     :param record: The collected job record.
     :return: Extracted output roles for the relaxation workflow.
     """
-    prefix = job_parameter(record, "data_prefix", "vasp")
+    prefix = record.parameter("data_prefix", "vasp") or ""
     return {
-        "relaxed_structure": read_structure(result_file(record, "CONTCAR", data_prefix=prefix)),
-        "total_energy": read_total_energy(result_file(record, "OUTCAR", data_prefix=prefix)),
+        "relaxed_structure": read_structure(record.result_file("CONTCAR", data_prefix=prefix)),
+        "total_energy": read_total_energy(record.result_file("OUTCAR", data_prefix=prefix)),
     }
