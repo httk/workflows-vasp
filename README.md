@@ -79,7 +79,9 @@ strings, so the Bash runner and the Python runners read one contract.
   ignored for workdir results. `vasp-relax-static` defaults to an empty prefix
   and publishes its stages under `relax/` and `static/`.
 * `vasp_command` (default empty) — the VASP command as one argv string, split
-  the way a shell splits it. The environment variable `HTTK_VASP_COMMAND`
+  the way a shell splits it. It names the program (`vasp_std`); the run helper
+  prepends the attempt's launch prefix (`HTTK_WORKFLOW_LAUNCH`), so do not put
+  `srun` or `mpirun` in it. A leftover launcher (for example `vasp.command = "srun -n 32 vasp_std"`) is refused by `run_vasp` with a `ValueError` when a prefix applies; the Python workflows catch only `OSError`, so the attempt ends as a runner error whose message explains the fix, and the Bash runner reports "could not run VASP at all (status 2)" with the explanation on stderr. The environment variable `HTTK_VASP_COMMAND`
   overrides it, which is how a deployment — or a test — chooses the executable
   without touching any job.
 
