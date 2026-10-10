@@ -24,7 +24,7 @@ API.
 
 Each `collect.py` is just as explicit about where the results are: it names
 the files its workflow's outputs come from, both where the runner leaves them
-in the workdir and where `publish` puts them in transactional data, and reads
+in the workdir and where `publish` puts them in published data, and reads
 them with the `read_structure` and `read_total_energy` helpers of
 `httk.codes.vasp.collect`, locating the files with `record.result_file`. A copied runner that keeps more results — say,
 a second relaxation that archives the first one's CONTCAR — collects them by
@@ -69,13 +69,16 @@ strings, so the Bash runner and the Python runners read one contract.
 * `rattle_amplitude` (default `0.0`) — when positive, the POSCAR is rattled by
   this amplitude after every applied remedy, with a seed derived from the
   attempt, so two retries never repeat one structure.
+* `publish_data` (default `false`) — when `true`, `publish` also copies the
+  `collect` files into the job's `data/` directory; by default outputs stay in
+  the workdir only.
 * `collect` (default `INCAR KPOINTS OUTCAR CONTCAR OSZICAR vasprun.xml
   vasp-run-report.json POTCAR.provenance.json`) — space-separated file names
-  copied to transactional data only when opted in. The default `data.mode`
-  `none` keeps outputs in the workdir. `vasp-relax-static` also uses this list
-  to archive the relaxation before the static stage. Missing files are skipped.
+  copied to `data/` only when `publish_data` is `true`. `vasp-relax-static`
+  also uses this list to archive the relaxation before the static stage.
+  Missing files are skipped.
 * `data_prefix` (default `vasp`) — directory below the job's data the
-  collected files are published under when transactional data is enabled;
+  collected files are published under when `publish_data` is `true`;
   ignored for workdir results. `vasp-relax-static` defaults to an empty prefix
   and publishes its stages under `relax/` and `static/`.
 * `vasp_command` (default empty) — the VASP command as one argv string, split
@@ -85,23 +88,27 @@ strings, so the Bash runner and the Python runners read one contract.
   overrides it, which is how a deployment — or a test — chooses the executable
   without touching any job.
 
-A job running one of these workflows needs `workdir.mode` `persistent`: the
-inputs a remedy rewrites have to be the inputs the next attempt reads. All four
-workflows default to `data.mode` `none`: the persistent workdir is the result,
-with no `data/` copy. Collectors read it directly. Pass `--data-mode
-transactional` to `httk job new` (or `data_mode="transactional"` to
-`new_job`) to also publish the curated files into `data/`.
+The workdir (`run/`) persists across attempts, so the inputs a remedy rewrites
+are the inputs the next attempt reads. By default the persistent workdir is
+the result, with no `data/` copy, and collectors read it directly. Pass
+`--parameter publish_data=true` to `httk job new` (or
+`parameters={"publish_data": True}` to `new_job`) to also publish the curated
+files into `data/`.
 
 ## Reference a workflow by commit
 
+A workflow is installed in a workspace before jobs of it are created;
+`--install` installs it first (`httk workflow install --workspace WS SOURCE`
+does it on its own):
+
 ```console
-httk job new --workflow 'git+https://github.com/httk/workflows-vasp@<ref>#vasp-relax' --input structure=POSCAR
+httk job new --install --workflow 'git+https://github.com/httk/workflows-vasp@<ref>#vasp-relax' --input structure=POSCAR
 ```
 
 `<ref>` may be a commit, branch, or tag, or omitted for the default branch; it
 is canonicalized to the full commit hash the repository is cloned at, and the
-named subdirectory's `httk_workflow.toml` package is used. Once a workflow has
-been referenced this way, its short name (e.g. `vasp.relax`) also resolves.
+named subdirectory's `httk_workflow.toml` package is installed. Once a workflow
+has been installed this way, its short name (e.g. `vasp.relax`) also resolves.
 
 ## Install as a plugin
 
@@ -109,4 +116,6 @@ been referenced this way, its short name (e.g. `vasp.relax`) also resolves.
 httk plugin install 'git+https://github.com/httk/workflows-vasp'
 ```
 
-installs all four workflow packages listed in `httk_plugin.toml` at once.
+installs all four workflow packages listed in `httk_plugin.toml` at once on
+this machine; each is still installed into a workspace (`httk job new
+--install --workflow vasp.relax`) before its jobs are created.

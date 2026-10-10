@@ -9,15 +9,14 @@ what exercises the remedy ladder. Nothing here simulates the workflow protocol:
 every test submits a real job to a real workspace and lets a real
 :class:`httk.workflow.TaskManager` run it, resolving the runner straight from
 this repository's package directories with
-:func:`httk.workflow.scaffold.new_job` — the same call a deployment makes with
-``--workflow-dir``.
+:func:`httk.workflow.scaffold.new_job`, installing the package first — the same
+call a deployment makes with ``--install --workflow-dir``.
 
 Dropped: ``test_the_installed_package_form_resolves_the_packaged_runner``. It
 exercised the reserved ``pkg:`` reference for a *pip-installed* runner package,
 which does not apply to a package driven straight from its checkout directory
 (a directory-sourced provider has no installed distribution to pin); the
-``publish="workspace"`` path every other test already takes covers job
-resolution and digest-pinning. ``test_every_packaged_runner_describes_itself_and_is_referenceable``
+workspace installation every other test already makes covers job resolution. ``test_every_packaged_runner_describes_itself_and_is_referenceable``
 is folded into ``test_packages.py``, which already checks every package's
 ``--describe`` steps and workflow name against its manifest; the Bash/Python
 parity this test also checked is covered more strongly below, by
@@ -31,6 +30,7 @@ from typing import Any, cast
 
 import pytest
 from httk.workflow import TaskManager, Workspace
+from httk.workflow.introspection import read_state, resolve_job
 from httk.workflow.scaffold import new_job
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -131,7 +131,7 @@ def _campaign(
     parameters: dict[str, object] | None = None,
     fail_once: bool = False,
     files: tuple[str, ...] = ("POSCAR", "INCAR", "POTCAR"),
-    data_mode: str = "transactional",
+    publish_data: bool = True,
     initial_step: str = "prepare",
     command: str | None = None,
     workspace_settings: dict[str, object] | None = None,
@@ -140,6 +140,7 @@ def _campaign(
 ) -> tuple[Workspace, str]:
     """Submit and run one job of one packaged workflow directory, and return where it landed.
 
+    ``publish_data`` sets the runners' opt-in for a curated ``data/`` copy of the results.
     ``bare_runner`` targets the directory's runner entry file directly instead of the
     package directory, which skips the manifest's declared-input checks (a bare
     runner file carries no input metadata) — used by the one test that means to
@@ -170,10 +171,10 @@ def _campaign(
         workspace,
         target,
         files=stage,
-        parameters=parameters or {},
-        data_mode="transactional" if data_mode == "transactional" else "none",
+        parameters={"publish_data": True, **(parameters or {})} if publish_data else parameters or {},
         step=initial_step,
         name=f"packaged {directory}",
+        install=True,
     )
     with TaskManager(workspace, heartbeat_interval=0.01) as manager:
         manager.run_until_idle(timeout=300.0)
@@ -181,19 +182,16 @@ def _campaign(
 
 
 def _payload_of(workspace: Workspace, job_id: str) -> tuple[str, Path]:
-    """Return the terminal marker kind and the payload directory of one job."""
+    """Return the state and the current directory of one job."""
 
-    marker = workspace.find_marker_by_id(job_id)
-    assert marker is not None, "the job vanished from the workspace"
-    return marker.kind, workspace.payload_path(marker.placement, marker.job_key)
+    ref = resolve_job(workspace, job_id)
+    return ref.state, ref.path
 
 
-def _failure(workspace: Workspace, job_id: str) -> dict[str, Any]:
-    marker = workspace.find_marker_by_id(job_id)
-    assert marker is not None
-    failure = workspace.read_state(marker).get("failure")
-    assert isinstance(failure, dict)
-    return failure
+def _failure(workspace: Workspace, job_id: str) -> Any:
+    state, damaged = read_state(resolve_job(workspace, job_id))
+    assert damaged is None and state is not None and state.failure is not None
+    return state.failure
 
 
 def _job_state(payload: Path) -> dict[str, Any]:
@@ -242,7 +240,7 @@ def test_the_packaged_relax_runner_prepares_runs_and_collects(tmp_path: Path, mo
     assert "remedies" not in state
     assert (workdir / "fake-vasp-attempts").read_text(encoding="utf-8") == "1"
 
-    # And the finished calculation was published as transactional data.
+    # And the finished calculation was published into data/ (publish_data).
     published = _files(payload / "data")
     assert published == [f"vasp/{name}" for name in sorted(_COLLECTED)]
     assert (payload / "data" / "vasp" / "CONTCAR").read_text(encoding="utf-8").splitlines()[-1].startswith("0.51")
@@ -476,17 +474,17 @@ def test_the_chain_runner_relaxes_promotes_and_runs_statically(tmp_path: Path, m
 
 
 @pytest.mark.parametrize("directory", ("vasp-relax", "vasp-relax-bash", "vasp-static", "vasp-relax-static"))
-@pytest.mark.parametrize("data_mode", (None, "transactional"), ids=("default-none", "transactional-opt-in"))
-def test_vasp_cli_runs_and_collects_default_workdir_or_transactional_results(
+@pytest.mark.parametrize("publish_data", (False, True), ids=("default-workdir", "publish-data-opt-in"))
+def test_vasp_cli_runs_and_collects_default_workdir_or_published_results(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     directory: str,
-    data_mode: str | None,
+    publish_data: bool,
     test_profile,
 ) -> None:
-    if not test_profile.extended and data_mode == "transactional":
-        pytest.skip("the transactional-opt-in half of this matrix only runs under HTTK_TEST_PROFILE=extended")
+    if not test_profile.extended and publish_data:
+        pytest.skip("the publish-data-opt-in half of this matrix only runs under HTTK_TEST_PROFILE=extended")
 
     atomistic = cast(Any, pytest.importorskip("httk.atomistic"))
     atomistic_structures = cast(Any, pytest.importorskip("httk.atomistic.entries.structures"))
@@ -495,11 +493,10 @@ def test_vasp_cli_runs_and_collects_default_workdir_or_transactional_results(
     StructureEntry = atomistic_structures.StructureEntry
     Backend = store_module.Backend
     SqlStore = store_module.SqlStore
-    from httk.core import DataRecord
+    from httk.core import DataRecord, TotalEnergyRecord
     from httk.core.cli import CLIContext
     from httk.core.storage import content_id
     from httk.workflow import collect
-    from httk.workflow.models import JobDefinition
     from httk.workflow.packages import load_workflow_package
     from httk.workflow.postprocessing import run_postprocess_script
     from httk.workflow.workflow_cli import command
@@ -516,6 +513,7 @@ def test_vasp_cli_runs_and_collects_default_workdir_or_transactional_results(
     args = [
         "job",
         "new",
+        "--install",
         "--workspace",
         name,
         "--workflow-dir",
@@ -523,24 +521,20 @@ def test_vasp_cli_runs_and_collects_default_workdir_or_transactional_results(
         "--input",
         f"structure={structure}",
     ]
-    if data_mode is not None:
-        args += ["--data-mode", data_mode]
+    if publish_data:
+        args += ["--parameter", "publish_data=true"]
     assert command(args, context) == 0
-    key, path = capsys.readouterr().out.strip().split("\t")
-    payload = Path(path)
-    definition = JobDefinition.from_path(payload / "job.json")
-    assert definition.data_mode == (data_mode or "none")
-    assert definition.workdir_mode == "persistent"
+    key, _submitted = capsys.readouterr().out.strip().split("\t")
     with TaskManager(workspace, heartbeat_interval=0.01) as manager:
         manager.run_until_idle(timeout=300.0)
 
-    kind, actual_payload = _payload_of(workspace, definition.id)
+    # The job directory moved as the job ran; it is found by its key.
+    kind, payload = _payload_of(workspace, key)
     assert kind == "succeeded"
-    assert actual_payload == payload
-    assert (payload / "data").exists() == (data_mode == "transactional")
+    assert (payload / "data").exists() == publish_data
     assert set(_COLLECTED) <= set(_files(payload / "run"))
     assert _job_state(payload)["classification"] == "completed"
-    if data_mode is None and directory in (
+    if not publish_data and directory in (
         "vasp-relax",
         "vasp-relax-bash",
         "vasp-static",
@@ -548,13 +542,13 @@ def test_vasp_cli_runs_and_collects_default_workdir_or_transactional_results(
         # The result files occur exactly once in the whole payload.
         for filename in _COLLECTED:
             assert list(payload.rglob(filename)) == [payload / "run" / filename]
-    if data_mode == "transactional":
+    if publish_data:
         prefixes = ("relax", "static") if directory == "vasp-relax-static" else ("vasp",)
         assert _files(payload / "data") == sorted(f"{prefix}/{file}" for prefix in prefixes for file in _COLLECTED)
 
     # No process-wide registered provider names these package-directory
     # workflows any more (the built-in ones are gone); collect them from the
-    # digest-verified, job-pinned workspace runner tree new_job published instead.
+    # workflow installed in the workspace instead.
     (item,) = collect(workspace, fail_fast=True, allow_job_collector=True)
     roles = {"total_energy"} if directory == "vasp-static" else {"relaxed_structure", "total_energy"}
     energy = -11.5 if directory in ("vasp-static", "vasp-relax-static") else -10.5
@@ -564,7 +558,7 @@ def test_vasp_cli_runs_and_collects_default_workdir_or_transactional_results(
     assert isinstance(collected_energy, DataRecord)
     assert collected_energy.value == pytest.approx(energy)
     assert item.record.workdir == payload / "run"
-    assert (item.record.data is None) == (data_mode is None)
+    assert (item.record.data is None) == (not publish_data)
     if "relaxed_structure" in roles:
         relaxed = item.outputs["relaxed_structure"]
         assert isinstance(relaxed, UnitcellStructureView)
@@ -594,12 +588,13 @@ def test_vasp_cli_runs_and_collects_default_workdir_or_transactional_results(
     with Backend.sqlite(tmp_path / "results.sqlite") as database:
         store = SqlStore(database)
         # Storing rewrites product_of links to public structure IDs, which also
-        # changes the energy's content ID. Query the stored records instead.
+        # changes the energy's content ID. Query the stored records instead: a
+        # total energy is stored as the typed TotalEnergyRecord.
         searcher = store.searcher()
-        variable = searcher.variable(DataRecord)
+        variable = searcher.variable(TotalEnergyRecord)
         energies = [row.energy for row in searcher.results(energy=variable)]
         assert len(energies) == 1
-        assert energies[0].value == pytest.approx(energy)
+        assert energies[0].total_energy == pytest.approx(energy)
         assert energies[0].id in report["stored"]["entries"]
         if "relaxed_structure" in roles:
             assert (

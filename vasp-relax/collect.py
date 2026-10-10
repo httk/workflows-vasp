@@ -1,7 +1,7 @@
 """Collect hook for the packaged ``vasp.relax`` workflow.
 
 The relaxation leaves CONTCAR and OUTCAR in the persistent workdir; with
-transactional data, ``publish`` also puts them under ``data/<data_prefix>/``.
+``publish_data``, ``publish`` also puts them under ``data/<data_prefix>/``.
 """
 
 from httk.codes.vasp.collect import read_structure, read_total_energy

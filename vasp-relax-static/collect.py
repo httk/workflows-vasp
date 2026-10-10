@@ -1,7 +1,7 @@
 """Collect hook for the packaged ``vasp.relax-static`` workflow.
 
 ``promote`` archives the relaxation under ``relax/`` in the workdir, and the
-static stage then runs in the workdir itself. With transactional data,
+static stage then runs in the workdir itself. With ``publish_data``,
 ``publish`` puts the two stages under ``data/<data_prefix>/relax/`` and
 ``data/<data_prefix>/static/``.
 """

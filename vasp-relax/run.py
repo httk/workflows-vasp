@@ -14,7 +14,7 @@ The job inputs and parameters are documented in this repository's README. Nothin
 here imports anything but an installed *httk-workflow*, so this one file is the
 whole runner: it is the entry of this package directory, reference it by git URI
 (e.g. ``git+https://github.com/httk/workflows-vasp#vasp-relax``) or with
-``--workflow-dir``, publish it to a workspace runner store, or copy it and edit it.
+``--workflow-dir`` (installed into the workspace first), or copy it and edit it.
 """
 
 import shlex
@@ -154,17 +154,18 @@ def publish(a: Attempt) -> None:
     """Publish the finished calculation and complete the job."""
 
     prefix = a.parameter("data_prefix", "vasp") or ""
-    transactional = a.context.data_generation is not None
+    # Results stay in the persistent workdir; publish_data opts a job into a curated data/ copy too.
+    to_data = a.parameter("publish_data", False) is True
     published = []
     for name in (a.parameter("collect", COLLECT) or "").split():
         if (a.workdir / name).is_file():
-            if transactional:
+            if to_data:
                 a.put(a.workdir / name, f"{prefix}/{name}")
             published.append(name)
-    if transactional:
+    if to_data:
         a.log.append("note", f"published to data/{prefix}: {', '.join(published) or 'nothing'}")
     else:
-        # Without transactional data the persistent workdir is the result.
+        # Without publish_data the persistent workdir is the result.
         a.log.append("note", f"kept in the workdir: {', '.join(published) or 'nothing'}")
     a.succeed()
 

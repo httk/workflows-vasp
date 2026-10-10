@@ -141,16 +141,17 @@ step_run() {
     httk_workflow_retry "applied the $policy remedy for $problem"
 }
 
-# Publish the collected files, or leave them in the persistent workdir when this
-# job has no transactional data.
+# Publish the collected files into data/ when the job opts in with publish_data,
+# or leave them in the persistent workdir.
 step_publish() {
-    local prefix name published=
+    local prefix name publish published=
     prefix=$(httk_workflow_parameter data_prefix vasp)
+    publish=$(httk_workflow_parameter publish_data false)
     for name in $(httk_workflow_parameter collect "$_vasp_collect_default"); do
         if [ ! -f "$name" ]; then
             continue
         fi
-        if [ -n "${HTTK_WORKFLOW_DATA_DIR:-}" ]; then
+        if [ "$publish" = true ]; then
             httk_workflow_put "$name" "$prefix/$name" >/dev/null
         fi
         if [ -n "$published" ]; then
@@ -159,7 +160,7 @@ step_publish() {
             published=$name
         fi
     done
-    if [ -n "${HTTK_WORKFLOW_DATA_DIR:-}" ]; then
+    if [ "$publish" = true ]; then
         httk_workflow_runlog_note "published to data/$prefix: ${published:-nothing}"
     else
         httk_workflow_runlog_note "kept in the workdir: ${published:-nothing}"

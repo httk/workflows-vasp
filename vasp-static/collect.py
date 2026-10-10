@@ -1,7 +1,7 @@
 """Collect hook for the packaged ``vasp.static`` workflow.
 
 The single point leaves its OUTCAR in the persistent workdir; with
-transactional data, ``publish`` also puts it under ``data/<data_prefix>/``.
+``publish_data``, ``publish`` also puts it under ``data/<data_prefix>/``.
 """
 
 from httk.codes.vasp.collect import read_total_energy

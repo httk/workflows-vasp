@@ -9,7 +9,6 @@ requires = ["httk-workflow>=2.1.1", "httk-workflow-vasp>=0.1.0", "httk-atomistic
 entry = "run.py"
 steps = ["publish", "prepare", "run"]
 initial_step = "prepare"
-data_mode = "none"
 
 [workflow.inputs.structure]
 destination = "POSCAR"

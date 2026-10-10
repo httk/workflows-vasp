@@ -1,7 +1,7 @@
 """Collect hook for the packaged ``vasp.relax-bash`` workflow.
 
 The relaxation leaves CONTCAR and OUTCAR in the persistent workdir; with
-transactional data, ``publish`` in ``run.sh`` also puts them under
+``publish_data``, ``publish`` in ``run.sh`` also puts them under
 ``data/<data_prefix>/``.
 """
 

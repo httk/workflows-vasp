@@ -21,7 +21,7 @@ job inputs and parameters are documented in this repository's README. Nothing he
 imports anything but an installed *httk-workflow*, so this one file is the whole
 runner: it is the entry of this package directory, reference it by git URI
 (e.g. ``git+https://github.com/httk/workflows-vasp#vasp-relax-static``) or with
-``--workflow-dir``, publish it to a workspace runner store, or copy it and edit it.
+``--workflow-dir`` (installed into the workspace first), or copy it and edit it.
 """
 
 import shlex
@@ -202,19 +202,20 @@ def publish(a: Attempt) -> None:
     """Publish both stages and complete the job."""
 
     base = a.parameter("data_prefix", "") or ""
-    transactional = a.context.data_generation is not None
+    # Results stay in the persistent workdir; publish_data opts a job into a curated data/ copy too.
+    to_data = a.parameter("publish_data", False) is True
     for stage, directory in (("static", a.workdir), (RELAX_ARCHIVE, a.workdir / RELAX_ARCHIVE)):
         prefix = f"{base}/{stage}" if base else stage
         published = []
         for name in (a.parameter("collect", COLLECT) or "").split():
             if (directory / name).is_file():
-                if transactional:
+                if to_data:
                     a.put(directory / name, f"{prefix}/{name}")
                 published.append(name)
-        if transactional:
+        if to_data:
             a.log.append("note", f"published to data/{prefix}: {', '.join(published) or 'nothing'}")
         else:
-            # Without transactional data the persistent workdir is the result.
+            # Without publish_data the persistent workdir is the result.
             a.log.append("note", f"kept in the workdir: {', '.join(published) or 'nothing'}")
     a.state["static_energy"] = a.state.get("energy")
     a.succeed()

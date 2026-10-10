@@ -51,7 +51,6 @@ def _record(root: Path, parameters: dict[str, str], *, transactional: bool) -> J
         payload_path=PurePosixPath("jobs/job--12345678-1234-4234-8234-123456789abc"),
         workdir_path=PurePosixPath("run"),
         data_path=PurePosixPath("data") if transactional else None,
-        data_generation=1 if transactional else None,
         provenance={},
         runner_steps=None,
         children={},
