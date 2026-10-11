@@ -7,7 +7,7 @@ each package against itself instead: it loads, its manifest steps equal the
 set of steps its own runner entry (``run.py``, or ``run.sh`` for Bash) reports through ``--describe``, its
 ``declarations["workflow"]`` equals the committed ``declaration.json``, its
 declared inputs/outputs/postprocess entries are well-formed, and the plugin
-manifest lists exactly the four directories.
+manifest lists exactly the package directories.
 """
 
 import json
@@ -20,7 +20,13 @@ from httk.workflow.packages import load_workflow_package
 from httk.workflow.scaffold import describe_runner
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-_ENTRIES = {"vasp-relax": "run.py", "vasp-relax-bash": "run.sh", "vasp-static": "run.py", "vasp-relax-static": "run.py"}
+_ENTRIES = {
+    "vasp-relax": "run.py",
+    "vasp-relax-bash": "run.sh",
+    "vasp-static": "run.py",
+    "vasp-relax-static": "run.py",
+    "vasp-general": "run.py",
+}
 _DIRECTORIES = tuple(_ENTRIES)
 
 
@@ -80,6 +86,6 @@ def test_package_runner_entry_is_executable(directory: str) -> None:
     assert os.access(REPO_ROOT / directory / _ENTRIES[directory], os.X_OK)
 
 
-def test_plugin_manifest_lists_exactly_the_four_directories() -> None:
+def test_plugin_manifest_lists_exactly_the_package_directories() -> None:
     manifest = parse_plugin_manifest(REPO_ROOT)
     assert set(manifest.workflows) == set(_DIRECTORIES)

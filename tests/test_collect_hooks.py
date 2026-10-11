@@ -65,7 +65,9 @@ def _write(path: Path, text: str) -> None:
 
 @pytest.mark.parametrize("transactional", (False, True))
 @pytest.mark.parametrize("prefix", (None, "", "custom/results"))
-@pytest.mark.parametrize("package", ("vasp-relax", "vasp-relax-bash", "vasp-static", "vasp-relax-static"))
+@pytest.mark.parametrize(
+    "package", ("vasp-relax", "vasp-relax-bash", "vasp-static", "vasp-relax-static", "vasp-general")
+)
 def test_collect_hooks_follow_their_runner_layouts(
     tmp_path: Path, transactional: bool, prefix: str | None, package: str
 ) -> None:
@@ -90,6 +92,19 @@ def test_collect_hooks_follow_their_runner_layouts(
     collect = runpy.run_path(str(REPO_ROOT / package / "collect.py"))["collect"]
     outputs = collect(_record(tmp_path, parameters, transactional=transactional))
 
-    assert set(outputs) == ({"total_energy"} if package == "vasp-static" else {"relaxed_structure", "total_energy"})
+    structure_role = "final_structure" if package == "vasp-general" else "relaxed_structure"
+    assert set(outputs) == ({"total_energy"} if package == "vasp-static" else {structure_role, "total_energy"})
     assert isinstance(outputs["total_energy"], httk.core.DataRecord)
     assert outputs["total_energy"].value == pytest.approx(-27.09328752)
+
+
+@pytest.mark.parametrize("contcar", ("absent", "empty"))
+def test_the_general_collect_hook_leaves_out_a_missing_structure(tmp_path: Path, contcar: str) -> None:
+    _write(tmp_path / "run" / "OUTCAR", _OUTCAR)
+    if contcar == "empty":
+        _write(tmp_path / "run" / "CONTCAR", "")
+
+    collect = runpy.run_path(str(REPO_ROOT / "vasp-general" / "collect.py"))["collect"]
+    outputs = collect(_record(tmp_path, {}, transactional=False))
+
+    assert set(outputs) == {"total_energy"}

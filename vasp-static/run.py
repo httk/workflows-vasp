@@ -1,24 +1,35 @@
 #!/usr/bin/env python3
 """One single-point VASP calculation of a structure that is already chosen.
 
-The workflow is the relaxation workflow with the ionic loop switched off, spelled
-out on the ``httk.codes.vasp`` primitives so that this file is a starting
-point to copy and edit: ``prepare`` stages the structure and the INCAR of the job
-payload and adds the static tags — ``IBRION = -1`` and ``NSW = 0`` unless the job
-says otherwise — ``run`` executes VASP with the reviewed remedy ladder, and
-``publish`` publishes the result. The structure may be a POSCAR or the CONTCAR of
-an earlier relaxation, staged as an input file of this job and named by the
-``poscar`` input.
+The workflow is spelled out on the ``httk.codes.vasp`` primitives so that this
+package directory is a starting point to copy and edit: ``prepare`` stages the structure and
+the INCAR template ``templates/INCAR.static`` — the electronic settings of
+``vasp-relax``'s ``INCAR.relax`` with the ionic loop switched off
+(``NSW = 0``, ``IBRION = -1``) — and derives everything else, ``run`` executes
+VASP with the reviewed remedy ladder, and ``publish`` publishes the result. The
+structure may be a POSCAR or the CONTCAR of an earlier relaxation, staged as an
+input file of this job and named by the ``poscar`` input.
+
+Edit the template of a copied package to change the settings, or replace it in
+a single job with a payload file ``files/INCAR.static``. The template's own
+``EDIFF`` and ``EDIFFG`` are kept; when absent they are derived from
+``accuracy_per_atom``. The ``incar_tags`` parameter wins over the template and
+every derived value.
 
 The job inputs and parameters are documented in this repository's README. Nothing
-here imports anything but an installed *httk-workflow*, so this one file is the
-whole runner: it is the entry of this package directory, reference it by git URI
-(e.g. ``git+https://github.com/httk/workflows-vasp#vasp-static``) or with
-``--workflow-dir`` (installed into the workspace first), or copy it and edit it.
+here imports anything but an installed *httk-workflow*, so this file and its
+``templates/`` are the whole runner: it is the entry of this package directory,
+reference it by git URI (e.g. ``git+https://github.com/httk/workflows-vasp#vasp-static``)
+or with ``--workflow-dir`` (installed into the workspace first), or copy the package
+directory and edit it. The runner file alone, without its ``templates/``, fails
+with ``vasp.template_missing``. The template's ``ICHARG = 1`` becomes
+``ICHARG = 2`` here, since a single point of its own has no charge density to
+read.
 """
 
 import shlex
 import shutil
+from pathlib import Path
 
 from httk.codes.vasp import (
     VaspPreparationOptions,
@@ -29,7 +40,9 @@ from httk.codes.vasp import (
     plan_vasp_remedy,
     prepare_vasp_inputs,
     rattle_poscar,
+    read_incar,
     run_vasp,
+    update_incar,
     validate_vasp_workdir,
 )
 from httk.workflow import Attempt, Runner
@@ -38,17 +51,17 @@ COLLECT = "INCAR KPOINTS OUTCAR CONTCAR OSZICAR vasprun.xml vasp-run-report.json
 # Kept across a remedied rerun: they make the rerun cheaper, and VASP overwrites
 # them itself when it reuses them.
 KEEP_BETWEEN_RUNS = ("WAVECAR", "CHGCAR", "CHG")
-# What makes this a single point: no ionic step, and no ionic loop.
-STATIC_TAGS = {"IBRION": -1, "NSW": 0}
+TEMPLATES = Path(__file__).resolve().parent / "templates"
 
 run = Runner("vasp.static")
 
 
 @run.step
 def prepare(a: Attempt) -> None:
-    """Stage the payload inputs, switch off relaxation, and go on to run VASP."""
+    """Stage the structure and the INCAR template, derive the rest, and go on to run VASP."""
 
     validate_vasp_workdir(a.workdir)
+    incar = a.workdir / "INCAR"
     poscar = a.payload / a.parameter("poscar", "files/POSCAR")
     if not poscar.is_file():
         a.fail(
@@ -58,12 +71,18 @@ def prepare(a: Attempt) -> None:
         )
         return
     shutil.copyfile(poscar, a.workdir / "POSCAR")
-    incar = a.payload / a.parameter("incar", "files/INCAR")
-    if incar.is_file():
-        shutil.copyfile(incar, a.workdir / "INCAR")
-    else:
-        # Everything an INCAR needs is derived below.
-        (a.workdir / "INCAR").write_text("", encoding="utf-8")
+    override = a.payload / "files" / "INCAR.static"
+    source = override if override.is_file() else TEMPLATES / "INCAR.static"
+    if not source.is_file():
+        a.fail(
+            "vasp.template_missing",
+            f"the INCAR template {source} is missing: reference this workflow as its package directory "
+            "(a git URI ending in #vasp-static, or --workflow-dir), not as its runner file alone",
+            details={"expected": str(source)},
+        )
+        return
+    shutil.copyfile(source, incar)
+    template = read_incar(incar)
     library = a.setting("vasp.pseudo_library", a.parameter("pseudopotential_library", None)) or None
     potcar = a.payload / a.parameter("potcar", "files/POTCAR")
     if potcar.is_file():
@@ -77,9 +96,16 @@ def prepare(a: Attempt) -> None:
         pseudopotential_library=library,
         parallel_tag=a.parameter("parallel_tag", None) or None,
         parallel_value=None if parallel_value is None else int(parallel_value),
-        incar_tags={**(a.parameter("static_incar_tags", {}) or STATIC_TAGS), **(a.parameter("incar_tags", {}) or {})},
+        # The template's own EDIFF/EDIFFG are kept rather than derived; the job's tags win over both.
+        incar_tags={
+            **{tag: template[tag] for tag in ("EDIFF", "EDIFFG") if tag in template},
+            **dict(a.parameter("incar_tags", {}) or {}),
+        },
     )
     prepare_vasp_inputs(options, directory=a.workdir)
+    # A single point of its own has no earlier run's charge density to read.
+    if read_incar(incar).get("ICHARG") == "1":
+        update_incar({"ICHARG": 2}, incar)
     a.log.append("note", "prepared a vasp.static calculation")
     a.advance("run")
 

@@ -1,0 +1,32 @@
+# A single point with the electronic settings of INCAR.relax in vasp-relax,
+# with the ionic loop off (NSW=0, IBRION=-1) and no WAVECAR or CHGCAR written.
+# ICHARG=1 reads the charge density a preceding relaxation left in the workdir;
+# the runner sets ICHARG=2 (atomic charges) when there is none written with the
+# same PREC, ENCUT and ENAUG. NELM is raised from INCAR.relax's 40 to 60, since
+# a single point from atomic charges converges from scratch.
+# EDIFF and EDIFFG are derived from the accuracy_per_atom parameter when not set here.
+LWAVE=.FALSE.
+LCHARG=.FALSE.
+ISTART=0
+ICHARG=1
+LORBIT=11
+LMAXMIX=6
+
+ISPIN=2
+
+ALGO=Normal
+PREC=Accurate
+ENCUT=600
+ENAUG=900
+LREAL=Auto
+LASPH=.TRUE.
+ADDGRID=.FALSE.
+SYMPREC=1e-4
+
+ISMEAR=-5
+
+NELMIN=5
+NELM=60
+
+NSW=0
+IBRION=-1

@@ -26,6 +26,7 @@ _DIRECTORY_TO_SOURCE_NAME = {
     "vasp-relax-bash": "vasp-relax",
     "vasp-static": "vasp-static",
     "vasp-relax-static": "vasp-relax-static",
+    "vasp-general": "vasp-general",
 }
 
 

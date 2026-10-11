@@ -1,0 +1,35 @@
+[workflow]
+name = "vasp.general"
+description = "run any VASP calculation from job-supplied inputs; only the POTCAR may be assembled"
+declaration_uri = "https://schemas.httk.org/defs/v0.1/workflows/vasp-general"
+declaration_file = "declaration.json"
+requires = ["httk-workflow>=2.1.1", "httk-workflow-vasp>=0.1.0", "httk-atomistic>=2.1.2"]
+
+[workflow.runner]
+entry = "run.py"
+steps = ["publish", "prepare", "run"]
+initial_step = "prepare"
+
+# The structure input lands at files/POSCAR, where a job may also supply it directly.
+[workflow.inputs.structure]
+destination = "POSCAR"
+role = "initial_structure"
+entry_type = "structures"
+required = false
+
+[workflow.outputs.final_structure]
+entry_type = "structures"
+role = "final_structure"
+ref = "https://schemas.optimade.org/defs/v1.3/entrytypes/optimade/structures"
+description = "The structure the calculation ended with (its CONTCAR)."
+product_of = "initial_structure"
+
+[workflow.outputs.total_energy]
+entry_type = "records"
+role = "total_energy"
+ref = "https://schemas.httk.org/defs/v0.1/properties/core/total_energy"
+description = "The final total energy of the calculation."
+product_of = "final_structure"
+
+[workflow.collect]
+file = "collect.py"
