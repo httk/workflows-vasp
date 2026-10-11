@@ -1,5 +1,5 @@
 {
-  "$id": "https://schemas.httk.org/defs/v0.1/workflows/vasp-static",
+  "$id": "https://raw.githubusercontent.com/httk/workflows-vasp/refs/tags/wf-decl-v0.1.0/vasp-static/declaration.json",
   "title": "VASP static calculation",
   "description": "This workflow declaration defines the httk vasp-static workflow: it performs a single-point total-energy evaluation of a fixed structure with VASP.\nIt defines the meaning of its roles: input role initial_structure is a structures entry containing the structure to evaluate.\nOutput role total_energy is a records entry containing the total energy of the structure.",
   "x-httk-definition": {

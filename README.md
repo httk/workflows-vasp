@@ -213,6 +213,24 @@ the result, with no `data/` copy, and collectors read it directly. Pass
 `parameters={"publish_data": True}` to `new_job`) to also publish the curated
 files into `data/`.
 
+## Declaration identity
+
+Each package's `declaration.json` is identified by its `$id`, the GitHub raw
+URL of that file at a `wf-decl-vX.Y.Z` tag, and `httk_workflow.toml` names the
+same URL as `declaration_uri`. The version is the declaration's own
+`x-httk-definition.version`. Declaration versions across the repository form
+one increasing sequence shared with the tags. A `wf-decl-*` tag is created only
+when a declaration's content changes and is never moved. To change a
+declaration, edit the document and give it a version higher than every existing
+`wf-decl-*` tag (normally the next minor), set `$id` and `declaration_uri` to
+that tag's URL, commit, tag `wf-decl-v<version>`, and push the tag with
+`git push origin wf-decl-v<version>` (a plain `git push` does not push tags).
+Declarations that did not change keep their version and `$id`, so versions may
+skip numbers. The URL names the declaration document, not the workflow code,
+which jobs reference by git commit (next section). The earlier
+`https://schemas.httk.org/defs/v0.1/workflows/…` identities remain valid for
+runs already stored under them.
+
 ## Reference a workflow by commit
 
 A workflow is installed in a workspace before jobs of it are created;

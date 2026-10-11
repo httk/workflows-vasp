@@ -1,7 +1,7 @@
 [workflow]
 name = "vasp.relax-static"
 description = "relax in v1's robust stages, promote the relaxed structure, then run it statically, from editable INCAR templates"
-declaration_uri = "https://schemas.httk.org/defs/v0.1/workflows/vasp-relax-static"
+declaration_uri = "https://raw.githubusercontent.com/httk/workflows-vasp/refs/tags/wf-decl-v0.1.0/vasp-relax-static/declaration.json"
 declaration_file = "declaration.json"
 requires = ["httk-workflow>=2.1.1", "httk-workflow-vasp>=0.1.0", "httk-atomistic>=2.1.2"]
 

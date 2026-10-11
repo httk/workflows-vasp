@@ -1,7 +1,7 @@
 [workflow]
 name = "vasp.static"
 description = "one single-point calculation of one structure, from an editable INCAR template"
-declaration_uri = "https://schemas.httk.org/defs/v0.1/workflows/vasp-static"
+declaration_uri = "https://raw.githubusercontent.com/httk/workflows-vasp/refs/tags/wf-decl-v0.1.0/vasp-static/declaration.json"
 declaration_file = "declaration.json"
 requires = ["httk-workflow>=2.1.1", "httk-workflow-vasp>=0.1.0", "httk-atomistic>=2.1.2"]
 

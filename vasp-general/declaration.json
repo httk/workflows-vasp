@@ -1,5 +1,5 @@
 {
-    "$id": "https://schemas.httk.org/defs/v0.1/workflows/vasp-general",
+    "$id": "https://raw.githubusercontent.com/httk/workflows-vasp/refs/tags/wf-decl-v0.1.0/vasp-general/declaration.json",
     "title": "VASP general calculation",
     "description": "This workflow declaration defines the httk vasp-general workflow: it runs any VASP calculation whose input files the job supplies, all of them except the POTCAR, which may also be assembled from a pseudopotential library.\nIt defines the meaning of its roles: input role initial_structure is a structures entry containing the structure the calculation starts from.\nOutput role final_structure is a structures entry containing the structure the calculation ended with, and output role total_energy is a records entry containing the final total energy of the calculation.",
     "x-httk-definition": {

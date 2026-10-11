@@ -1,5 +1,5 @@
 {
-  "$id": "https://schemas.httk.org/defs/v0.1/workflows/vasp-relax",
+  "$id": "https://raw.githubusercontent.com/httk/workflows-vasp/refs/tags/wf-decl-v0.1.0/vasp-relax/declaration.json",
   "title": "VASP structure relaxation",
   "description": "This workflow declaration defines the httk vasp-relax workflow: it relaxes the geometry of a crystal structure with VASP.\nIt defines the meaning of its roles: input role initial_structure is a structures entry containing the structure to relax.\nOutput role relaxed_structure is a structures entry containing the relaxed geometry, and output role total_energy is a records entry containing the final total energy of the relaxed structure.",
   "x-httk-definition": {

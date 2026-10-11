@@ -1,5 +1,5 @@
 {
-  "$id": "https://schemas.httk.org/defs/v0.1/workflows/vasp-relax-static",
+  "$id": "https://raw.githubusercontent.com/httk/workflows-vasp/refs/tags/wf-decl-v0.1.0/vasp-relax-static/declaration.json",
   "title": "VASP relaxation and static calculation",
   "description": "This workflow declaration defines the httk vasp-relax-static workflow: it relaxes the geometry, then evaluates the relaxed structure with a final static calculation.\nIt defines the meaning of its roles: input role initial_structure is a structures entry containing the structure to relax.\nOutput role relaxed_structure is a structures entry containing the relaxed geometry, and output role total_energy is a records entry containing the total energy of the relaxed structure from the final static calculation.",
   "x-httk-definition": {
