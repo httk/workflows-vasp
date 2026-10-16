@@ -1,0 +1,32 @@
+# The self-consistent stage of the band structure: the single point of INCAR.static
+# in vasp-static, with LCHARG=.TRUE., since it writes the charge density the
+# non-self-consistent band stage reads, and ICHARG=2 (atomic charges): there is
+# no earlier density to start from. The tetrahedron method (ISMEAR=-5) stays: this
+# stage runs on the uniform mesh. The density-defining tags (PREC, ENCUT, ENAUG,
+# ISPIN, LMAXMIX, LASPH, ...) must equal those of INCAR.bands.
+# EDIFF and EDIFFG are derived from the accuracy_per_atom parameter when not set here.
+LWAVE=.FALSE.
+LCHARG=.TRUE.
+ISTART=0
+ICHARG=2
+LORBIT=11
+LMAXMIX=6
+
+ISPIN=2
+
+ALGO=Normal
+PREC=Accurate
+ENCUT=600
+ENAUG=900
+LREAL=Auto
+LASPH=.TRUE.
+ADDGRID=.FALSE.
+SYMPREC=1e-4
+
+ISMEAR=-5
+
+NELMIN=5
+NELM=60
+
+NSW=0
+IBRION=-1

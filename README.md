@@ -12,6 +12,7 @@ They use the `httk.codes.vasp` helper library of an installed
 | `vasp-static` | `vasp.static` | One single-point total-energy calculation of a fixed structure, from an editable INCAR template. |
 | `vasp-relax-static` | `vasp.relax-static` | The staged relaxation of `vasp-relax`, then a single point of the relaxed structure. |
 | `vasp-general` | `vasp.general` | Any VASP calculation, run on input files the job supplies; only the POTCAR may be assembled. |
+| `vasp-band-structure` | `vasp.band-structure` | The electronic band structure of a structure along its HPKOT path: a self-consistent run, then a non-self-consistent line-mode run, from editable INCAR templates. |
 
 Each package directory — its runner entry (`run.py`, or `run.sh` in
 `vasp-relax-bash`) with its `templates/` — is a starting point to copy and
@@ -19,7 +20,8 @@ edit as a whole: the runner's steps spell out their work — reading the job
 parameters, staging inputs, building the preparation options, running VASP
 under supervision, planning and applying one remedy of the reviewed ladder, and
 publishing — directly on the primitives of `httk.codes.vasp`. The
-Python runners (`vasp-relax`, `vasp-static`, `vasp-relax-static`, `vasp-general`) are
+Python runners (`vasp-relax`, `vasp-static`, `vasp-relax-static`, `vasp-general`,
+`vasp-band-structure`) are
 independent of each other and deliberately repeat that code, templates
 included; `vasp-relax-bash` is the same staged relaxation, step for step, in
 Bash against the sibling Bash VASP API, with its own copies of the templates.
@@ -48,6 +50,8 @@ its package's `templates/` directory:
 | `prerelax` | `INCAR.prerelax` | A loose relaxation of positions and cell (its own `EDIFF = 1E-3`, `EDIFFG = -0.3`) that writes the charge density. |
 | `relax1`, `relax2`, … | `INCAR.relax` | Accurate relaxation rounds; from `relax2` on, each reads the previous round's charge density. |
 | `static` | `INCAR.static` | A single point with the electronic settings of `INCAR.relax` and the ionic loop off, reading the final relax round's charge density when there is one. |
+| `scf` | `INCAR.scf` | `vasp-band-structure`'s self-consistent stage: `INCAR.static` from atomic charges (`ICHARG = 2`), writing the charge density (`LCHARG = .TRUE.`). |
+| `bands` | `INCAR.bands` | `vasp-band-structure`'s non-self-consistent band stage (`ICHARG = 11`, `ISMEAR = 0`), with the density-defining settings of `INCAR.scf`. |
 
 `vasp-relax` and `vasp-relax-bash` run `preprerelax`, `prerelax` and then relax rounds: from `relax2`
 on, a round whose final energy is within ten times `EDIFFG` of the previous
@@ -149,6 +153,73 @@ A directory holding the input files is staged as one job's `files/` with:
 httk job new --install --workflow-dir vasp-general --files my-calculation/
 ```
 
+## vasp-band-structure
+
+`vasp-band-structure` computes the electronic band structure of a structure
+that is already chosen, normally the `relaxed_structure` of a `vasp.relax` job
+chained before it; it does not relax. `prepare` recognizes the structure's
+space group within `symmetry_tolerance` with `httk.atomistic.band_path`, and
+replaces it by its HPKOT primitive cell (the convention of SeeK-path): the
+band k-points refer to that cell's reciprocal basis, so both VASP runs compute
+it, and it is the collected `band_structure_cell`. Recognition symmetrizes:
+sites may move within the tolerance, so the cell is the standardized structure,
+not merely another basis of the input. The written POSCAR keeps the input
+POSCAR's species order, so a supplied POTCAR and `LDAU*` arrays keep their
+meaning. `prepare` also writes the line-mode `KPOINTS.bands` and
+`band_path.json`, the exact labels, coordinates (as fractions) and path, next
+to the rounded KPOINTS. Its `transform` is the integer basis change from the
+`httk.atomistic.primitive_cell` of the input to the band cell, not from the
+input POSCAR's own basis.
+
+The `scf` stage (`INCAR.scf`) runs on the automatic mesh of `kpoint_density`
+and writes the CHGCAR; it is archived under `scf/` and its CHGCAR stays at the
+top of the workdir. The `bands` stage (`INCAR.bands`) then runs there with
+`ICHARG = 11` and `LCHARG = .FALSE.` (it must not overwrite the scf density)
+on `KPOINTS.bands`. Both stages share the job's remedy budget and
+history, so a remedy of the scf stage is re-applied in the band stage, except
+that the band stage always runs with `ICHARG = 11`. Remedies that move the
+structure (`scale_lattice`, `contcar_to_poscar`) are never applied, nor, in the
+band stage, an `ICHARG` change; the ladder goes on to its next rung instead.
+`NBANDS` may differ between the stages (more bands show more of the
+conduction range); its derived default is the same in both.
+
+The job fails by name when (the first five in `prepare`, before any VASP run,
+where the INCAR checks read `incar_tags` and each stage's payload INCAR, or its
+template when there is none):
+
+* `vasp.cell_dependent_tag_unsupported` — `MAGMOM`, `NELECT`, `NUPDOWN` or an
+  absolute FFT grid (`NGX NGY NGZ NGXF NGYF NGZF`) is set, or the POSCAR
+  comment has a `[MAGMOM=...]`: these are per site, per cell or sized for the
+  cell, and the HPKOT cell's sites and size differ from the input's.
+* `vasp.band_path_failed` — the structure has no band path: site moments, an
+  irrational metric, or spglib is missing (`pip install httk-atomistic[default]`).
+* `vasp.unsupported_calculation` — `LHFCALC`, `METAGGA`, `LNONCOLLINEAR` or
+  `LSORBIT` is set (checked again on each stage's prepared INCAR). The scope is
+  collinear LDA/GGA(+U): a hybrid functional needs zero-weight explicit
+  k-points in a self-consistent run, and a meta-GGA the kinetic-energy density,
+  which `ICHARG = 11` does not provide.
+* `vasp.invalid_band_inputs` — `incar_tags` sets `ICHARG` at all (they apply
+  to both stages, so any value is wrong for one), the band INCAR sets it to
+  anything but 11, or `band_divisions` is not an integer of at least 2; also
+  when the band INCAR does not read `ICHARG = 11` at a launch.
+* `vasp.input_mismatch` — the HPKOT cell cannot be written in the input's
+  species order.
+* `vasp.charge_density_missing` — the band stage finds no non-empty CHGCAR.
+* `vasp.charge_density_incompatible` — the band INCAR differs from the scf
+  run's in a density-defining tag (`PREC ENCUT ENAUG NGX NGY NGZ NGXF NGYF NGZF
+  ISPIN MAGMOM LMAXMIX GGA METAGGA LASPH LDAU LDAUTYPE LDAUL LDAUU LDAUJ NELECT
+  LNONCOLLINEAR LSORBIT GGA_COMPAT LUSE_VDW AGGAC AGGAX ALDAC PARAM1 PARAM2
+  LMAXPAW XC`, compared case-insensitively, an absent tag equal only
+  to an absent one); the details list each difference.
+
+The outputs are `band_structure_cell` (the band-stage POSCAR), `total_energy`
+(of the scf run, from `scf/OUTCAR`), and two `files` entries: `band_eigenvalues`
+(the band run's EIGENVAL) and `band_path` (`band_path.json`). With
+`publish_data` the stages are published under `scf/` and `bands/` below
+`data_prefix` (default empty), always including the files collect reads. This
+runner imports *httk-atomistic*, and recognition needs spglib, which the
+manifest requires.
+
 ## Job parameters
 
 Every packaged VASP runner reads the same `inputs` object, and every member is
@@ -165,7 +236,8 @@ strings, so the Bash runner and the Python runners read one contract.
 * `kpoint_density` (default `20.0`), `centering` (default `Monkhorst-Pack`),
   `accuracy_per_atom` (default `0.001`) — passed to
   `httk.codes.vasp.inputs.VaspPreparationOptions`. `kpoint_density` is the
-  density of the relax rounds and the static stage.
+  density of the relax rounds and the static stage, and of the scf stage of
+  `vasp-band-structure`.
 * `prerelax_kpoint_density` (default `10.0`) — the k-point density of the
   `preprerelax` and `prerelax` stages.
 * `maximum_relax_rounds` (default `5`) — a relax round numbered above this that
@@ -186,7 +258,13 @@ strings, so the Bash runner and the Python runners read one contract.
   instead of editing a runner.
 * `rattle_amplitude` (default `0.0`) — when positive, the POSCAR is rattled by
   this amplitude after every applied remedy, with a seed derived from the
-  attempt, so two retries never repeat one structure.
+  attempt, so two retries never repeat one structure. `vasp-band-structure`
+  does not use it: its structure is the HPKOT cell its k-points refer to.
+* `band_divisions` (default `40`, `vasp-band-structure` only) — k-points per
+  segment of the line-mode band path.
+* `symmetry_tolerance` (default `1e-3`, in Å, `vasp-band-structure` only) —
+  the tolerance the structure's symmetry is recognized within, also the
+  precision its POSCAR is read with; recorded in `band_path.json`.
 * `publish_data` (default `false`) — when `true`, `publish` also copies the
   `collect` files into the job's `data/` directory; by default outputs stay in
   the workdir only.
@@ -194,11 +272,15 @@ strings, so the Bash runner and the Python runners read one contract.
   vasp-run-report.json POTCAR.provenance.json`) — space-separated file names
   copied to `data/` only when `publish_data` is `true`. `vasp-relax-static`
   also uses this list to archive the relaxation before the static stage.
+  `vasp-band-structure` defaults to `INCAR KPOINTS POSCAR OUTCAR OSZICAR
+  EIGENVAL vasprun.xml band_path.json vasp-run-report.json
+  POTCAR.provenance.json` and also archives these into `scf/`.
   Missing files are skipped. The `stages/` archives are not published.
 * `data_prefix` (default `vasp`) — directory below the job's data the
   collected files are published under when `publish_data` is `true`;
   ignored for workdir results. `vasp-relax-static` defaults to an empty prefix
-  and publishes its stages under `relax/` and `static/`.
+  and publishes its stages under `relax/` and `static/`, and
+  `vasp-band-structure` under `scf/` and `bands/`.
 * `vasp_command` (default empty) — the VASP command as one argv string, split
   the way a shell splits it. It names the program (`vasp_std`); the run helper
   prepends the attempt's launch prefix (`HTTK_WORKFLOW_LAUNCH`), so do not put

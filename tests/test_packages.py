@@ -26,6 +26,7 @@ _ENTRIES = {
     "vasp-static": "run.py",
     "vasp-relax-static": "run.py",
     "vasp-general": "run.py",
+    "vasp-band-structure": "run.py",
 }
 _DIRECTORIES = tuple(_ENTRIES)
 
@@ -68,7 +69,9 @@ def test_package_inputs_outputs_and_postprocess_entries_are_well_formed(
     for name, metadata in provider.outputs.items():
         assert isinstance(name, str) and name
         assert isinstance(metadata.get("entry_type"), str) and metadata["entry_type"]
-        assert isinstance(metadata.get("ref"), str) and metadata["ref"]
+        # A files entry is described by its own metadata (url, media type), not by a property definition.
+        if metadata["entry_type"] != "files":
+            assert isinstance(metadata.get("ref"), str) and metadata["ref"]
         assert isinstance(metadata.get("description"), str) and metadata["description"]
 
     for name, script in provider.postprocess_scripts.items():

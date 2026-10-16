@@ -1,0 +1,33 @@
+# The non-self-consistent band stage: ICHARG=11 reads the scf stage's CHGCAR and
+# keeps it fixed while the eigenvalues are computed along the line-mode KPOINTS of
+# the band path. The density-defining tags (PREC, ENCUT, ENAUG, ISPIN, LMAXMIX,
+# LASPH, ...) must equal those of INCAR.scf, or the job fails with
+# vasp.charge_density_incompatible. The tetrahedron method is not defined on a
+# path, so ISMEAR=0. No LORBIT: add LORBIT=11 in a copied template for projected
+# bands (no PROCAR is collected).
+# EDIFF and EDIFFG are derived from the accuracy_per_atom parameter when not set here.
+LWAVE=.FALSE.
+LCHARG=.FALSE.
+ISTART=0
+ICHARG=11
+LMAXMIX=6
+
+ISPIN=2
+
+ALGO=Normal
+PREC=Accurate
+ENCUT=600
+ENAUG=900
+LREAL=Auto
+LASPH=.TRUE.
+ADDGRID=.FALSE.
+SYMPREC=1e-4
+
+ISMEAR=0
+SIGMA=0.05
+
+NELMIN=5
+NELM=60
+
+NSW=0
+IBRION=-1

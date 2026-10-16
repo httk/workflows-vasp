@@ -108,3 +108,42 @@ def test_the_general_collect_hook_leaves_out_a_missing_structure(tmp_path: Path,
     outputs = collect(_record(tmp_path, {}, transactional=False))
 
     assert set(outputs) == {"total_energy"}
+
+
+@pytest.mark.parametrize("transactional", (False, True))
+@pytest.mark.parametrize("prefix", (None, "", "custom/results"))
+def test_the_band_structure_collect_hook_follows_its_runner_layout(
+    tmp_path: Path, transactional: bool, prefix: str | None
+) -> None:
+    from httk.core.digests import sha256_file
+
+    parameters = {} if prefix is None else {"data_prefix": prefix}
+    if transactional:
+        # The runner publishes its stages under scf/ and bands/ below the (default empty) prefix.
+        root = tmp_path / "data" / (prefix or "")
+        bands, scf = root / "bands", root / "scf"
+    else:
+        bands = tmp_path / "run"
+        scf = bands / "scf"
+    _write(bands / "POSCAR", _POSCAR)
+    _write(bands / "EIGENVAL", "fake eigenvalues\n")
+    _write(bands / "band_path.json", '{"convention": "HPKOT"}\n')
+    _write(scf / "OUTCAR", _OUTCAR)
+    # Only the scf run's energy is the result; a top-level OUTCAR is the band run's.
+    _write(bands / "OUTCAR", _OUTCAR.replace("-27.09328752", "-20.0"))
+
+    collect = runpy.run_path(str(REPO_ROOT / "vasp-band-structure" / "collect.py"))["collect"]
+    outputs = collect(_record(tmp_path, parameters, transactional=transactional))
+
+    assert set(outputs) == {"band_structure_cell", "total_energy", "band_eigenvalues", "band_path"}
+    assert outputs["total_energy"].value == pytest.approx(-27.09328752)
+    assert len(outputs["band_structure_cell"].sites.reduced_coords) == 2
+    for role, name, media_type in (
+        ("band_eigenvalues", "EIGENVAL", None),
+        ("band_path", "band_path.json", "application/json"),
+    ):
+        record = outputs[role]
+        assert isinstance(record, httk.core.FileRecord)
+        assert record.url == (bands / name).relative_to(tmp_path).as_posix()
+        assert (record.name, record.media_type, record.size) == (name, media_type, (bands / name).stat().st_size)
+        assert record.sha256 == sha256_file(bands / name)

@@ -1,0 +1,44 @@
+{
+  "$id": "https://raw.githubusercontent.com/httk/workflows-vasp/refs/tags/wf-decl-v0.2.0/vasp-band-structure/declaration.json",
+  "title": "VASP band structure",
+  "description": "This workflow declaration defines the httk vasp-band-structure workflow: it standardizes a structure to its HPKOT primitive cell and computes its electronic band structure with VASP, a self-consistent run followed by a non-self-consistent run along the HPKOT band path.\nIt defines the meaning of its roles: input role initial_structure is a structures entry containing the structure whose band structure is computed.\nOutput role band_structure_cell is a structures entry containing the HPKOT primitive cell the band k-points refer to, output role total_energy is a records entry containing the total energy of the HPKOT primitive cell from the self-consistent run, output role band_eigenvalues is a files entry containing the EIGENVAL of the non-self-consistent run along the band path, and output role band_path is a files entry containing band_path.json, the exact HPKOT labels, coordinates and path.",
+  "x-httk-definition": {
+    "kind": "workflow_declaration",
+    "format": "0.1",
+    "version": "0.2.0",
+    "name": "vasp-band-structure",
+    "label": "vasp_band_structure_workflow_httk"
+  },
+  "inputs": [
+    {
+      "name": "initial_structure",
+      "entry_type": "structures",
+      "ref": "https://schemas.optimade.org/defs/v1.3/entrytypes/optimade/structures",
+      "description": "The structure whose band structure is computed."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "band_structure_cell",
+      "entry_type": "structures",
+      "ref": "https://schemas.optimade.org/defs/v1.3/entrytypes/optimade/structures",
+      "description": "The HPKOT primitive cell the band k-points refer to."
+    },
+    {
+      "name": "total_energy",
+      "entry_type": "records",
+      "ref": "https://schemas.httk.org/defs/v0.1/properties/core/total_energy",
+      "description": "The total energy of the HPKOT primitive cell from the self-consistent run."
+    },
+    {
+      "name": "band_eigenvalues",
+      "entry_type": "files",
+      "description": "EIGENVAL of the non-self-consistent run along the band path."
+    },
+    {
+      "name": "band_path",
+      "entry_type": "files",
+      "description": "band_path.json: the exact HPKOT labels, coordinates and path."
+    }
+  ]
+}

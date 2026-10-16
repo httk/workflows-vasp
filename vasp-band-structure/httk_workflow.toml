@@ -1,0 +1,46 @@
+[workflow]
+name = "vasp.band-structure"
+description = "the electronic band structure of one structure along its HPKOT path: a self-consistent run, then a non-self-consistent line-mode run, from editable INCAR templates"
+declaration_uri = "https://raw.githubusercontent.com/httk/workflows-vasp/refs/tags/wf-decl-v0.2.0/vasp-band-structure/declaration.json"
+declaration_file = "declaration.json"
+requires = ["httk-workflow>=2.1.1", "httk-workflow-vasp>=0.1.0", "httk-atomistic>=2.1.2", "spglib>=2.0"]
+
+[workflow.runner]
+entry = "run.py"
+steps = ["prepare", "publish", "run_bands", "run_scf", "stage_bands", "stage_scf"]
+initial_step = "prepare"
+
+[workflow.inputs.structure]
+destination = "POSCAR"
+role = "initial_structure"
+entry_type = "structures"
+required = true
+
+[workflow.outputs.band_structure_cell]
+entry_type = "structures"
+role = "band_structure_cell"
+ref = "https://schemas.optimade.org/defs/v1.3/entrytypes/optimade/structures"
+description = "The HPKOT primitive cell the band k-points refer to."
+product_of = "initial_structure"
+
+[workflow.outputs.total_energy]
+entry_type = "records"
+role = "total_energy"
+ref = "https://schemas.httk.org/defs/v0.1/properties/core/total_energy"
+description = "The total energy of the HPKOT primitive cell from the self-consistent run."
+product_of = "band_structure_cell"
+
+[workflow.outputs.band_eigenvalues]
+entry_type = "files"
+role = "band_eigenvalues"
+description = "EIGENVAL of the non-self-consistent run along the band path."
+product_of = "band_structure_cell"
+
+[workflow.outputs.band_path]
+entry_type = "files"
+role = "band_path"
+description = "band_path.json: the exact HPKOT labels, coordinates and path."
+product_of = "band_structure_cell"
+
+[workflow.collect]
+file = "collect.py"
