@@ -1,0 +1,31 @@
+# One HSE evaluation of the coarse-mesh relaxation, passed to the HSE stage
+# (vasp-relax-static-coarse) as its INCAR.coarse. The electronic settings are
+# that runner's INCAR.coarse plus the HSE06 tags of the endpoint-pbe-hse
+# campaign (ALGO Damped, LHFCALC, AEXX 0.25, HFSCREEN 0.2, TIME 0.4, ISYM 3;
+# notebook log 2026-10-15-0955). PRECFOCK comes from coarse_incar_tags (Fast).
+# The runner sets NSW=0, IBRION=-1, ISIF=2, LWAVE, EDIFF and ISTART/ICHARG.
+# Compound settings (ENCUT, ENAUG, NBANDS) go in the job's incar_tags.
+LCHARG=.FALSE.
+LORBIT=11
+LMAXMIX=6
+
+ISPIN=2
+
+ALGO=Damped
+TIME=0.4
+LHFCALC=.TRUE.
+AEXX=0.25
+HFSCREEN=0.2
+PREC=Accurate
+ENCUT=600
+ENAUG=900
+LREAL=Auto
+LASPH=.TRUE.
+ADDGRID=.FALSE.
+ISYM=3
+SYMPREC=1e-4
+
+ISMEAR=-5
+
+NELMIN=5
+NELM=200

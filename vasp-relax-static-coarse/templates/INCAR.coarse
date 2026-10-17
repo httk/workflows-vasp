@@ -1,0 +1,27 @@
+# One evaluation of the coarse-mesh relaxation: a single point whose energy,
+# forces and stress feed the optimizer in run.py. The electronic settings are
+# those of INCAR.static in vasp-relax-static. The runner sets, on top of this
+# template and every job tag, the tags that make it one evaluation of its
+# driver: NSW=0, IBRION=-1, ISIF=2, LWAVE=.TRUE., the EDIFF of the current
+# level (ediff_loose or ediff_tight), and ISTART/ICHARG from whether the
+# previous coarse evaluation left a WAVECAR. Keep ISYM on: the optimizer relies
+# on VASP's symmetrized forces and stress to keep the structure's symmetry.
+LCHARG=.FALSE.
+LORBIT=11
+LMAXMIX=6
+
+ISPIN=2
+
+ALGO=Normal
+PREC=Accurate
+ENCUT=600
+ENAUG=900
+LREAL=Auto
+LASPH=.TRUE.
+ADDGRID=.FALSE.
+SYMPREC=1e-4
+
+ISMEAR=-5
+
+NELMIN=5
+NELM=60

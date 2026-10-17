@@ -25,6 +25,8 @@ _ENTRIES = {
     "vasp-relax-bash": "run.sh",
     "vasp-static": "run.py",
     "vasp-relax-static": "run.py",
+    "vasp-relax-static-coarse": "run.py",
+    "vasp-relax-static-hse": "run.py",
     "vasp-general": "run.py",
     "vasp-band-structure": "run.py",
 }

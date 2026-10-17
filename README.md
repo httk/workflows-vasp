@@ -11,6 +11,8 @@ They use the `httk.codes.vasp` helper library of an installed
 | `vasp-relax-bash` | `vasp.relax-bash` | The same staged relaxation, authored in Bash. |
 | `vasp-static` | `vasp.static` | One single-point total-energy calculation of a fixed structure, from an editable INCAR template. |
 | `vasp-relax-static` | `vasp.relax-static` | The staged relaxation of `vasp-relax`, then a single point of the relaxed structure. |
+| `vasp-relax-static-coarse` | `vasp.relax-static-coarse` | A relaxation on a coarse k-point mesh driven by a BFGS optimizer in Python, VASP giving one single point per step, then one final-mesh static, correcting the coarse surface once by the measured offset. |
+| `vasp-relax-static-hse` | `vasp.relax-static-hse` | An HSE relaxation from a PBE-relaxed start: calls `vasp.relax-static-coarse` with PBE (unless the structure is already PBE-relaxed), then with HSE from its result, seeded with its meshes, WAVECARs and optionally its Hessian. |
 | `vasp-general` | `vasp.general` | Any VASP calculation, run on input files the job supplies; only the POTCAR may be assembled. |
 | `vasp-band-structure` | `vasp.band-structure` | The electronic band structure of a structure along its HPKOT path: a self-consistent run, then a non-self-consistent line-mode run, from editable INCAR templates. |
 
@@ -117,6 +119,212 @@ There are three ways to change the settings:
 * **No `fix_too_close` stage.** The ladder's `ions_too_close` remedy, which
   scales the lattice by 5 %, replaces v1's separate stages, which scaled it by
   10 % in the pre-stages and by 5 % in relax1.
+
+## vasp-relax-static-coarse
+
+`vasp-relax-static-coarse` is `vasp-relax-static` with its staged IBRION
+relaxation replaced by a driver loop in the runner. VASP only supplies energy,
+forces and stress. Each evaluation is a fresh single point (`NSW = 0`) at a
+geometry chosen by the optimizer, restarting from the WAVECAR of the previous
+evaluation on the same mesh. The optimizer is `relax_optimizer.py`, a damped
+BFGS with a trust radius, standard library only. It runs on 3N atomic
+displacements plus 6 cell strains. The symmetry operations of the starting
+structure are found once (`symmetry_tolerance`), and every gradient and step
+is projected onto the coordinates they leave invariant, so the path keeps the
+starting symmetry whatever VASP's own symmetrization does. The report gives the
+number of operations at the start and at the final geometry.
+
+Stages:
+
+1. **Coarse, loose.** Evaluations on the coarse mesh at `ediff_loose`, until
+   the accepted point is within `switch_force` / `switch_stress`.
+2. **Coarse, tight.** The switch point is evaluated again at `ediff_tight`,
+   and that evaluation *replaces* the optimizer's accepted point without an
+   acceptance test or a curvature update, so energies and gradients at two
+   EDIFF levels are never compared (its `ediff_shift` records what the tighter
+   EDIFF changed). Then evaluations at `ediff_tight` until an accepted point is
+   within `force_limit` / `stress_limit`.
+3. **Final static.** One final-mesh static of that geometry. Its forces and
+   stress minus those of the tight coarse evaluation at the same geometry (the
+   pairing is checked; otherwise the job fails with `vasp.offset_pairing`) give
+   the offset. If the static misses the limits, the coarse relaxation continues
+   on a corrected surface, and a second final static ends the job
+   (`maximum_corrections`).
+
+The corrected surface is one model: the coarse energy plus the linear term
+`g_offset · (y − y_anchor)`, with the constant gradient `g_offset` (the
+offset's gradient where it was measured). The stop test uses the physical
+prediction, coarse forces and stress plus the measured offset. Each corrected
+evaluation records how far the two differ (`correction_model_discrepancy`,
+the largest force in eV/Å and stress component in kbar at that evaluation's
+geometry, in the symmetric subspace the optimizer works in), and the report
+compares the largest with `correction_bound_fraction` of the limits
+(`correction_model_bound`). It is a diagnostic, logged as a warning when out
+of bound; only the final static's own forces and stress decide.
+
+The job succeeds once its last final static has run. `within_limits` in the
+job state and the report says whether that static met the limits, and
+`collect.py` harvests the structure and energy only when it did: an
+out-of-limits result stays in the workdir and its report. More than
+`maximum_evaluations` coarse evaluations fail the job with
+`vasp.relax_not_converged`, also when the budget runs out just as the EDIFF is
+tightened (the tight repeat of the switch point is never skipped, so the cap is
+strict); a proposed cell that is singular, inverted or
+changes the volume by more than a factor 2 fails it with `vasp.cell_invalid`.
+
+**Time guard.** An evaluation starts only if the attempt's time left
+(`Attempt.deadline`) covers `time_factor` times its expected VASP time plus the
+largest staging and archiving overhead measured so far. It is checked before
+staging and again right before VASP starts. The expected time is the slowest
+evaluation so far of the same kind (coarse at the loose EDIFF, coarse at the
+tight one, final); before the first of a kind it is `expected_seconds` (first
+coarse), `tight_cost_factor` times the loose one (first tight), or
+`final_cost_factor` times the slowest coarse one (first final). Without
+`expected_seconds` the first evaluation runs unguarded and the log says so;
+give it for any run with a time limit. An evaluation without the time is
+published again with that `mintime`, so a manager with less time left does not
+claim it and a later one resumes. When the time needed exceeds the attempt's
+own `maxtime`, no attempt could run it: the job fails with
+`vasp.insufficient_time` (`needed_seconds`, `maxtime_seconds`) after
+committing what it has, and is continued once `maxtime` is raised.
+
+**Runs that do not complete** are classified by how the process ended (the
+supervised process's `termination`), never by the clock alone. Ended by a
+signal to the runner (`signal_15`, also `…_killed`) at the attempt's deadline
+(within 5 s of it, or later): the manager stopped it at its maxtime or drain;
+no remedy is used, the evaluation waits for a manager with 1.4 times the time
+the stopped run took, and the relaxation resumes from the last committed
+evaluation. At most `maximum_interruptions` such deferrals per job; one more
+fails it with `vasp.interrupted_repeatedly`. Ended by a signal well before the
+deadline (a cancellation, or a stop from outside httk): the job fails with
+`vasp.interrupted` (a cancelled job is committed as cancelled whatever it
+publishes). Ended by the runner's own `timeout`: the job fails with
+`vasp.evaluation_timeout`, without a remedy. Any other ending (a nonzero exit,
+a diagnosed stop, nonconvergence), however close to the deadline, goes to the
+remedy ladder. Every such run keeps its files and a `record.json` (how it
+ended, how it was handled, its diagnostics) under
+`relax-driver/incomplete/NNN-KK/`. A runner killed outright, or stopped
+outside the VASP run, publishes nothing; the manager records the failure and
+the snapshots make a retry safe.
+
+**Remedies.** Only remedies that change how VASP reaches the electronic ground
+state are applied (`ICHARG`, `AMIX`, `BMIX`, `AMIN`, `ALGO`, `TIME`, `NPAR`,
+`NEDOS`); they stay applied in later evaluations, and a remedy's `ICHARG`
+reset is kept even when a WAVECAR is read. A remedy that would change the
+surface or the structure (k-points, centering, smearing, symmetry, `LREAL`,
+bands, EDIFF, the lattice) stops the job with `vasp.unsupported_remedy` rather
+than compare evaluations of different surfaces; so does a job remedy history
+that holds any other operation (checked before an evaluation's inputs are
+written, so an older or edited history cannot bring one in). `rattle_amplitude` is not used.
+
+**Restarts and recovery.** A WAVECAR is cached as
+`relax-driver/<kind>/WAVECAR-NNN` (written by evaluation NNN) with the inputs
+it was written for (k-points and `ENCUT`, `PREC`, `NBANDS`, `ISPIN`, ...), and
+staged only for the same inputs; a payload seed is staged as it is. A failed
+run works on a copy, so the cache stays intact. Each record says whether a
+restart was requested (`restart_requested`, `restart_source`) and whether
+VASP's stdout shows the WAVECAR was read (`restart_observed`: true for "the
+WAVECAR file was read successfully", false for "WAVECAR not read", otherwise
+`"unknown"`). The optimizer state after evaluation NNN is
+`relax-driver/driver-NNN.json`, written after the evaluation's record; it names
+the cached WAVECAR of each kind, and a WAVECAR no snapshot names is deleted. A
+retried attempt continues from the job state's snapshot or from a later one an
+interrupted attempt already wrote. After the last final static the snapshot
+says only publication is left, and a retry republishes from the archive
+without running VASP.
+
+**Provenance.** Each evaluation is archived with its inputs and outputs and a
+`record.json` under `relax-driver/evaluations/NNN/`. The record holds the
+stage, mesh, EDIFF, PRECFOCK, ICHARG and remedies in force, energy, forces,
+stress, SCF steps, VASP and staging seconds, the restart evidence, and whether
+the offset was applied. `relax-driver/report.json` gathers every record and
+every measured offset, the correction-model bound, the symmetry counts, a
+restart summary, the interruptions and the records of incomplete runs, and is published with `publish_data`. `relax/` holds the
+coarse evaluation at the final geometry and the final static is at the top, the
+layout of `vasp-relax-static` that `collect.py` reads.
+
+The INCAR templates are `templates/INCAR.coarse` and `templates/INCAR.final`
+(payload overrides `files/INCAR.coarse` and `files/INCAR.final`); they are PBE,
+and an HSE run gives its own (as `vasp-relax-static-hse` does). After the
+templates and every tag, the runner sets the tags that make each run one
+evaluation: `NSW = 0`, `IBRION = -1`, `ISIF = 2`, `LWAVE = .TRUE.`, the
+stage's `EDIFF`, and `ISTART`/`ICHARG` from whether a fitting WAVECAR is there.
+The general job parameters above apply, except `maximum_relax_rounds`,
+`prerelax_kpoint_density` and `rattle_amplitude`; `centering` defaults to
+`Gamma` here, as tetrahedron integration (`ISMEAR = -5`) needs. The driver's
+own parameters are listed below. Their defaults come from the HSE campaign
+that motivated this workflow (KSnF3/KGeF3; for the measurements behind them,
+see `notebook/retro/owen-replay-2026-10-17.md` and
+`notebook/retro/owen-fixes-2026-10-17.md` in the researchbotter project):
+
+| Parameter | Default | Meaning and origin |
+| --- | --- | --- |
+| `coarse_mesh`, `final_mesh` | empty | Explicit `"n1 n2 n3"` meshes. When empty, the mesh is derived once from `coarse_kpoint_density` (10) or `kpoint_density` (20) and then kept for the whole relaxation. The campaign used 5³ coarse and 6³ Γ final for KGeF3 TET. KSnF3 TET used 6³ for both, with only PRECFOCK coarser. |
+| `coarse_incar_tags`, `final_incar_tags` | `{"PRECFOCK": "Fast"}`, `{"PRECFOCK": "Normal"}` | Tags for one kind of evaluation, applied over `incar_tags`. |
+| `ediff_loose`, `ediff_tight`, `final_ediff` | 1e-6, 1e-8, 1e-8 | At 1e-6, repeated evaluations at the same geometry differed by up to 0.002 eV/Å and 0.28 kbar, which is the size of the limits. At 1e-8 they differed by ≤ 0.0007 eV/Å and 0.017 kbar. |
+| `switch_force`, `switch_stress` | 0.02 eV/Å, 1 kbar | Where the tight EDIFF starts. |
+| `force_limit`, `stress_limit` | 0.003 eV/Å, 0.2 kbar | The campaign's acceptance limits (largest atomic force, largest stress component). |
+| `time_factor` | 1.4 | Time-guard factor on the expected VASP time. |
+| `expected_seconds` | 0 (none) | Expected VASP seconds of the first coarse evaluation; without it the first evaluation is unguarded. |
+| `tight_cost_factor` | 2 | Expected cost of the first tight-EDIFF coarse evaluation relative to the slowest loose one, until one has run. Not yet measured; deliberately generous. |
+| `final_cost_factor` | 8 | Expected cost of the first final-mesh evaluation relative to the slowest coarse one. It is used only before any final-mesh evaluation has run. It is a rough estimate: mesh 5³ → 6³ cost 3.4× per SCF step, and Normal cost 2.3–2.8× Fast. |
+| `maximum_evaluations`, `maximum_corrections` | 60, 1 | Cap on coarse evaluations (strict, including the tight repeat), and the number of offset corrections. |
+| `maximum_interruptions` | 3 | Evaluations deferred because the manager stopped VASP at the attempt's deadline; one more fails the job. Every deferral is a new activation, which no other driver cap bounds. |
+| `trust_atom`, `trust_strain`, `rise_tolerance` | 0.03 Å, 0.01, 2e-4 eV | Largest step per atom (physical displacement in the current cell) and per strain component (relative to the current cell) at trust factor 1. An evaluation whose energy rises more than `rise_tolerance` above the accepted point at the same EDIFF is rejected and the trust factor halves. |
+| `hessian_atom`, `hessian_bulk_modulus` | 70 eV/Å², 50 GPa | The isotropic initial Hessian model; both must be positive. In the offline replay, scaling it by ×0.5 to ×2 changed the KGeF3 TET count from 15 to 19 evaluations. |
+| `hessian_seed` | empty | Optional payload JSON `{"hessian": [[...]]}`, (3N + 6)², in the driver's coordinates: Cartesian displacements in Å, then the √2-weighted Voigt strain times V^(1/3). It must be finite, positive definite and invariant under the structure's symmetry operations (checked), or the job fails with `vasp.hessian_seed_invalid`. Off by default: the PBE Hessians fitted from the campaign's trajectories were indefinite. |
+| `hessian_seed_symmetrize` | false | Project the seed onto the structure's symmetry (average of P H Pᵀ over the operations, logged with the largest change) instead of refusing a seed that is not invariant. `vasp-relax-static-hse` sets it for a PBE Hessian, learned along a path that may have started at lower symmetry. |
+| `symmetry_tolerance` | 0.001 Å | Tolerance of the symmetry search (operations with integer matrices of entries −1, 0, 1 in the given cell). |
+| `correction_bound_fraction` | 0.1 | The corrected-surface model and the physical prediction are reported as within bound when they differ by at most this fraction of the limits. |
+| `offset_probe` | false | Adds a final-mesh evaluation at the tight re-evaluation of the switch point, so the offset is measured at two geometries. |
+| `coarse_wavecar`, `final_wavecar` | `files/WAVECAR`, `files/WAVECAR.final` | Optional seed WAVECARs for the first evaluation of each kind. |
+
+## vasp-relax-static-hse
+
+`vasp-relax-static-hse` runs no VASP itself. It declares
+`[workflow.calls] coarse = "vasp.relax-static-coarse"` and runs that driver as
+child jobs (`Attempt.call`, then `Attempt.gather`), once per functional, so the
+optimizer, the offset correction, the time guard and the remedies are the
+driver's own. Installing it installs the driver too, and a manager does not
+claim it until the driver is installed in the workspace.
+
+- `mode = "no_pbe"` (default): child `pbe` runs the driver on the input
+  structure with the driver's own (PBE) templates; then child `hse` runs it
+  from the PBE result's `relax/CONTCAR`.
+- `mode = "start_from_pbe"`: the input structure is PBE-relaxed and only the
+  `hse` child runs. `pbe_provenance` (where the structure came from) is
+  required, or the job fails with `vasp.pbe_provenance_missing`. Optional
+  seeds in the payload: `files/WAVECAR.pbe`, `files/WAVECAR.pbe.final` (used
+  only when the HSE stage's mesh of that kind is set), `files/hessian.pbe.json`.
+
+The HSE child gets the PBE child's coarse and final meshes unless the job sets
+them, so the WAVECARs fit; with `seed_wavecar` (default true) the PBE child's
+last coarse- and final-mesh WAVECARs as its first restarts; with
+`hessian_from_pbe` (default false) the PBE child's last BFGS Hessian as its
+`hessian_seed`. The HSE INCARs are `templates/INCAR.hse.coarse` and
+`templates/INCAR.hse.final` (the driver's templates plus ALGO Damped, LHFCALC,
+AEXX 0.25, HFSCREEN 0.2, TIME 0.4, ISYM 3), overridden by
+`files/INCAR.hse.coarse` / `files/INCAR.hse.final`; the PBE child takes
+`files/INCAR.pbe.coarse` / `files/INCAR.pbe.final` when given. Every other job
+parameter goes to both children, then `pbe_parameters` / `hse_parameters` (job
+parameter dictionaries) on top.
+
+`stages.json` records per stage the child job key and id, the called
+workflow's installed id, the structure, INCAR and seed sha256, meshes,
+evaluation counts, final energy, force and stress, and `within_limits`, and the
+lattice and volume shift of the HSE stage from its start. `after_hse` copies
+the HSE child's `relax/` and final static into the workdir in the driver's
+layout, plus its report as `hse-report.json`, and `collect.py` reads them
+there; the children collect as child runs of their own. A child that fails
+fails the job with `vasp.pbe_stage_failed` or `vasp.hse_stage_failed`, its
+failure recorded in `stages.json`. A PBE child that ends outside its limits is
+still used as the HSE start.
+
+Limits: a called child's `maxtime` is capped at the calling attempt's, so do
+not give this job a `maxtime` below one HSE evaluation; the first HSE
+evaluation has no cost estimate yet, so the driver's time guard does not
+cover it; all children travel with the job (an exchange eject returns the
+whole tree, WAVECARs included).
 
 ## vasp-general
 

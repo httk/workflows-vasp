@@ -1,0 +1,27 @@
+# The final-mesh static: a single point of the geometry the coarse-mesh
+# relaxation ended at, on the final k-point mesh. It is the acceptance
+# candidate, and with the coarse evaluation at the same geometry it measures
+# the coarse-to-final offset in force and stress. The electronic settings are
+# those of INCAR.static in vasp-relax-static. The runner sets, on top of this
+# template and every job tag, NSW=0, IBRION=-1, ISIF=2, LWAVE=.TRUE.,
+# EDIFF=final_ediff, and ISTART/ICHARG from whether an earlier final-mesh
+# evaluation (or the payload's final_wavecar) left a WAVECAR.
+LCHARG=.FALSE.
+LORBIT=11
+LMAXMIX=6
+
+ISPIN=2
+
+ALGO=Normal
+PREC=Accurate
+ENCUT=600
+ENAUG=900
+LREAL=Auto
+LASPH=.TRUE.
+ADDGRID=.FALSE.
+SYMPREC=1e-4
+
+ISMEAR=-5
+
+NELMIN=5
+NELM=60

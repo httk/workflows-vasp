@@ -66,12 +66,22 @@ def _write(path: Path, text: str) -> None:
 @pytest.mark.parametrize("transactional", (False, True))
 @pytest.mark.parametrize("prefix", (None, "", "custom/results"))
 @pytest.mark.parametrize(
-    "package", ("vasp-relax", "vasp-relax-bash", "vasp-static", "vasp-relax-static", "vasp-general")
+    "package",
+    (
+        "vasp-relax",
+        "vasp-relax-bash",
+        "vasp-static",
+        "vasp-relax-static",
+        "vasp-relax-static-coarse",
+        "vasp-relax-static-hse",
+        "vasp-general",
+    ),
 )
 def test_collect_hooks_follow_their_runner_layouts(
     tmp_path: Path, transactional: bool, prefix: str | None, package: str
 ) -> None:
-    relax_static = package == "vasp-relax-static"
+    # vasp-relax-static-coarse and -hse keep vasp-relax-static's layout: relax/ for the structure, the static at the top.
+    relax_static = package in ("vasp-relax-static", "vasp-relax-static-coarse", "vasp-relax-static-hse")
     parameters = {} if prefix is None else {"data_prefix": prefix}
     if transactional:
         # The runners' own data_prefix defaults: vasp-relax-static publishes its stages at the top.
@@ -88,6 +98,9 @@ def test_collect_hooks_follow_their_runner_layouts(
     if relax_static:
         # The archived relaxation energy must not become the static result.
         _write(root / "relax" / "OUTCAR", _OUTCAR.replace("-27.09328752", "-20.0"))
+    if package == "vasp-relax-static-coarse":
+        # The driver's report, next to relax/: this job's final static is within the limits.
+        _write(root / "relax-driver" / "report.json", '{"within_limits": true}')
 
     collect = runpy.run_path(str(REPO_ROOT / package / "collect.py"))["collect"]
     outputs = collect(_record(tmp_path, parameters, transactional=transactional))
@@ -96,6 +109,20 @@ def test_collect_hooks_follow_their_runner_layouts(
     assert set(outputs) == ({"total_energy"} if package == "vasp-static" else {structure_role, "total_energy"})
     assert isinstance(outputs["total_energy"], httk.core.DataRecord)
     assert outputs["total_energy"].value == pytest.approx(-27.09328752)
+
+
+@pytest.mark.parametrize("transactional", (False, True))
+def test_the_coarse_driver_harvests_nothing_from_a_final_static_outside_the_limits(
+    tmp_path: Path, transactional: bool
+) -> None:
+    root = tmp_path / ("data" if transactional else "run")
+    _write(root / "relax" / "CONTCAR", _POSCAR)
+    _write(root / ("static/OUTCAR" if transactional else "OUTCAR"), _OUTCAR)
+    _write(root / "relax-driver" / "report.json", '{"within_limits": false}')
+
+    collect = runpy.run_path(str(REPO_ROOT / "vasp-relax-static-coarse" / "collect.py"))["collect"]
+
+    assert collect(_record(tmp_path, {}, transactional=transactional)) == {}
 
 
 @pytest.mark.parametrize("contcar", ("absent", "empty"))

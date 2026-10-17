@@ -1,0 +1,31 @@
+# The HSE final-mesh static, passed to the HSE stage (vasp-relax-static-coarse)
+# as its INCAR.final. The electronic settings are that runner's INCAR.final
+# plus the HSE06 tags of the endpoint-pbe-hse campaign (ALGO Damped, LHFCALC,
+# AEXX 0.25, HFSCREEN 0.2, TIME 0.4, ISYM 3; notebook log 2026-10-15-0955).
+# PRECFOCK comes from final_incar_tags (Normal). The runner sets NSW=0,
+# IBRION=-1, ISIF=2, LWAVE, EDIFF=final_ediff and ISTART/ICHARG. Compound
+# settings (ENCUT, ENAUG, NBANDS) go in the job's incar_tags.
+LCHARG=.FALSE.
+LORBIT=11
+LMAXMIX=6
+
+ISPIN=2
+
+ALGO=Damped
+TIME=0.4
+LHFCALC=.TRUE.
+AEXX=0.25
+HFSCREEN=0.2
+PREC=Accurate
+ENCUT=600
+ENAUG=900
+LREAL=Auto
+LASPH=.TRUE.
+ADDGRID=.FALSE.
+ISYM=3
+SYMPREC=1e-4
+
+ISMEAR=-5
+
+NELMIN=5
+NELM=200
