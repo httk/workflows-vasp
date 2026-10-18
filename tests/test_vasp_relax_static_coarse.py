@@ -10,7 +10,9 @@ site, optionally a double well along x for the first atom (the soft mode). The
 final k-point mesh moves the targets slightly, which is the coarse-to-final
 offset the driver must measure and correct. Forces and stress carry noise
 proportional to ``EDIFF`` (seeded from the inputs, so every run is reproducible),
-and a tight EDIFF can shift energy, forces and stress (``tight_shift``). SCF
+and a tight EDIFF can shift energy, forces and stress (``tight_shift``). The
+energy can carry a term linear in the volume that the stress does not
+(``pulay``, kbar). SCF
 counts are lower when a WAVECAR is read; a WAVECAR is read only if it was
 written on the same mesh, and VASP's stdout says whether it was, as VASP 6.6
 does. A run can be made to fail (ZPOTRF), to reach NELM, to ignore its WAVECAR,
@@ -75,6 +77,7 @@ _MODEL = {
     "noise_force": 1000.0,
     "noise_stress": 1.0e5,
     "tight_shift": None,
+    "pulay": 0.0,
     "fail_on": [],
     "nelm_on": [],
     "ignore_wavecar": [],
@@ -178,6 +181,9 @@ for i in range(3):
     for j in range(3):
         dede[i][j] += 0.5 * (d[i] * grad[j] + d[j] * grad[i])
 stress = [[-x / volume * 1602.1766208 for x in row] for row in dede]
+# An energy the stress does not belong to: -pulay (kbar) times the volume, as J-0210's energy and stress disagreed
+# by an isotropic 2.15 kbar.
+energy -= MODEL["pulay"] * volume / 1602.1766208
 
 ediff = float(tags.get("EDIFF", "1e-6"))
 if MODEL["tight_shift"] is not None and ediff < 1e-7:
@@ -652,10 +658,10 @@ def test_the_time_guard_defers_an_evaluation_and_a_later_manager_resumes_it(
     # The next evaluation waits with a mintime of 1.4 x its expected time plus the measured overhead.
     driver = json.loads((payload / "run" / "relax-driver" / f"driver-{stopped:03d}.json").read_text())
     assert min(r["seconds"] for r in _records(payload / "run")) >= 2.0
-    slowest, overhead = driver["slowest"], driver["overhead"]
-    loose = slowest["coarse:loose"]
+    overhead = driver["overhead"]
     key = "coarse:loose" if driver["next"]["ediff"] > 1e-7 else "coarse:tight"
-    expected = slowest.get(key) or 2.0 * loose
+    # The estimate itself (and the first tight one's factor) is tested with fixed timings below.
+    expected = _module().expected_seconds(_attempt(tmp_path / "estimate", parameters={}), driver, key)
     full = 1.4 * expected + overhead["archive"] + overhead["staging"]
     mintime = json.loads((payload / "state.json").read_text(encoding="utf-8"))["resources"]["mintime"]
     assert mintime in (math.ceil(full), math.ceil(full - overhead["staging"]))
@@ -680,9 +686,10 @@ def test_an_attempt_killed_during_vasp_is_resumed_from_its_last_committed_evalua
     reference = _report(_job(reference_ws, reference_id)[1] / "run")["evaluations"]
 
     # The fifth run takes far longer than any estimate: the allocation ends while VASP runs, and the manager stops
-    # the attempt.
+    # the attempt. 15 s leave the first four (well under a second each) room on a loaded machine: with 6 s Altair saw
+    # the guard defer the fifth before it started (O1 review, 2026-10-18).
     workspace, job_id, _ = _campaign(
-        tmp_path / "killed", monkeypatch, model={"sleep_on": {"4": 30.0}}, end_time_after=6.0
+        tmp_path / "killed", monkeypatch, model={"sleep_on": {"4": 60.0}}, end_time_after=15.0
     )
     kind, payload = _job(workspace, job_id)
     # The stopped run is not a VASP failure: no remedy, and the evaluation waits for a manager with at least
@@ -1244,3 +1251,268 @@ def test_the_correction_discrepancy_is_in_physical_units(tmp_path: Path) -> None
     stress = [[1.0, 0.3, -0.7], [0.3, -2.5, 0.4], [-0.7, 0.4, 0.8]]
     g = module.gradient(reference, y, forces, stress)
     assert module.physical_size(reference, y, g) == pytest.approx(module.maxima(forces, stress), rel=1e-10)
+
+
+# -- O1 (J-0210): the acceptance test when the energy and the gradients disagree -------------------------------------
+
+
+def _biased(y: list[float], bias: float) -> tuple[float, list[float]]:
+    """E = y^2/2 + bias y with the gradient of y^2/2 alone: an energy its gradient does not belong to."""
+
+    return 0.5 * y[0] ** 2 + bias * y[0], [y[0]]
+
+
+def test_the_gradient_acceptance_judges_a_step_by_the_rise_its_gradients_predict(tmp_path: Path) -> None:
+    module = _module()
+
+    def told(acceptance: str, ceiling: float | None, to: float, bias: float) -> tuple[bool, dict]:
+        opt = module.TrustBFGS([[1.0]], lambda p, t: 1.0, 2e-4, ceiling)
+        opt.tell([0.1], *_biased([0.1], bias), acceptance)
+        accepted = opt.tell([to], *_biased([to], bias), acceptance)
+        return accepted, opt.history[-1]
+
+    # To the gradient's minimum on a biased energy: the gradients predict a fall of 0.005, the energy rises by 0.005.
+    accepted, entry = told("energy", None, 0.0, -0.1)
+    assert accepted is False and entry["trust_factor"] == 0.5
+    assert entry["rise"] == pytest.approx(0.005) and entry["predicted_rise"] == pytest.approx(-0.005)
+    accepted, entry = told("gradient", None, 0.0, -0.1)
+    assert accepted is True and entry["trust_factor"] == 1.0 and entry["acceptance"] == "gradient"
+    # A recorded rise above the ceiling rejects the step all the same.
+    assert told("gradient", 2e-3, 0.0, -0.1)[0] is False
+    assert told("gradient", 1e-2, 0.0, -0.1)[0] is True
+    # An overshoot on a consistent quadratic rises on both counts, by the same amount (the trapezoid is exact there).
+    accepted, entry = told("gradient", None, -0.3, 0.0)
+    assert accepted is False and entry["predicted_rise"] == pytest.approx(entry["rise"], rel=1e-12) and entry["rise"] > 0
+    with pytest.raises(ValueError):
+        told("forces", None, 0.0, 0.0)
+
+
+@pytest.mark.parametrize("acceptance", ("energy", "gradient_tight"))
+def test_an_energy_that_disagrees_with_the_stress_is_judged_by_the_gradients(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, acceptance: str
+) -> None:
+    # The model's energy falls by 20 kbar times the volume beyond the surface its stress belongs to. Judged by the
+    # energy, the steps that shrink the cell towards the stress zero rise and are rejected, past a cap of 16 (20
+    # coarse evaluations without the cap); judged by the gradients from the EDIFF switch on, none is.
+    workspace, job_id, _ = _campaign(
+        tmp_path / acceptance,
+        monkeypatch,
+        model={"pulay": 20.0},
+        parameters={"acceptance": acceptance, "maximum_evaluations": 16},
+    )
+    kind, payload = _job(workspace, job_id)
+    coarse = [r for r in _records(payload / "run") if r["kind"] == "coarse"]
+    steps = [r for r in coarse if "energy_gradient_mismatch" in r]
+    assert steps
+    kbar = 1 / 1602.1766208
+    for r in steps:
+        assert r["acceptance"] == ("energy" if acceptance == "energy" or r["level"] == "loose" else "gradient")
+        # The mismatch is the model's term, up to the loose evaluations' noise.
+        assert r["energy_gradient_mismatch"] == pytest.approx(-20.0 * kbar * r["volume_change"], abs=5e-5)
+    if acceptance == "energy":
+        assert kind == "failed"
+        failure = _failure(payload)
+        assert failure["code"] == "vasp.relax_not_converged"
+        assert any(r["accepted"] is False for r in coarse if r["level"] != "loose")
+        fits = failure["details"]["energy_gradient_consistency"]
+    else:
+        assert kind == "succeeded"
+        report = _report(payload / "run")
+        assert report["within_limits"] is True
+        assert all(r["accepted"] for r in coarse if r["level"] != "loose")
+        assert len(coarse) <= 13
+        fits = report["energy_gradient_consistency"]
+    assert fits["tight"]["sigma_kbar"] == pytest.approx(20.0, rel=1e-3)
+    assert fits["tight"]["rms_after_fit_eV"] < 1e-6 < fits["tight"]["rms_mismatch_eV"]
+
+
+def test_an_unknown_acceptance_fails_before_anything_runs(tmp_path: Path) -> None:
+    module = _module()
+    a = _attempt(tmp_path / "acceptance", parameters={"acceptance": "forces"})
+    outcome = _step(module, a, "prepare")
+    assert outcome[:2] == ("fail", "vasp.input_invalid") and "'forces'" in outcome[2]
+    assert not (a.workdir / "relax-driver").exists()
+
+
+def test_the_tight_repeat_of_the_switch_point_does_not_set_the_tight_step_estimate(tmp_path: Path) -> None:
+    # J-0210: the repeat took 149 s (4 SCF steps from a WAVECAR at its own geometry), the next tight step 441 s.
+    module = _module()
+    a = _attempt(tmp_path / "estimate", parameters={"expected_seconds": 100.0})
+    assert _drive(module, a) == ("succeed",)
+    switch = _report(a.workdir)["switched_at"]
+    records = _report(a.workdir)["evaluations"]
+    assert records[switch]["purpose"] == "tighten" and records[switch + 1]["purpose"] == "step"
+
+    def snapshot(index: int) -> dict:
+        return json.loads(module.driver_path(a, index).read_text(encoding="utf-8"))
+
+    after_repeat = snapshot(switch + 1)
+    assert "coarse:tight" not in after_repeat["slowest"]
+    assert after_repeat["slowest"]["coarse:tighten"] == pytest.approx(records[switch]["seconds"])
+    loose = after_repeat["slowest"]["coarse:loose"]
+    repeat = after_repeat["slowest"]["coarse:tighten"]
+    assert module.expected_seconds(a, after_repeat, "coarse:tight") == pytest.approx(max(1.35 * loose, repeat))
+    assert snapshot(switch + 2)["slowest"]["coarse:tight"] == pytest.approx(records[switch + 1]["seconds"])
+
+
+@pytest.mark.parametrize(
+    "repeat, expected",
+    # Altair's numbers: slowest loose 416 s; a cheap repeat (J-0210: 149 s) leaves 1.35 x 416, a slow one (900 s,
+    # hypothetical) is the estimate; no loose time and no expected_seconds leave the repeat alone.
+    ((None, 561.6), (149.0, 561.6), (900.0, 900.0)),
+)
+def test_a_slow_tight_repeat_is_a_lower_bound_on_the_first_tight_step(
+    tmp_path: Path, repeat: float | None, expected: float
+) -> None:
+    module = _module()
+    a = _attempt(tmp_path / "bound", parameters={})
+    slowest = {"coarse:loose": 416.0} | ({} if repeat is None else {"coarse:tighten": repeat})
+    driver = {"slowest": slowest, "overhead": {"staging": 10.0, "archive": 20.0}}
+    plan = {"kind": "coarse", "purpose": "step", "ediff": 1e-8}
+    assert module.expected_seconds(a, driver, "coarse:tight") == pytest.approx(expected)
+    assert module.time_needed(a, driver, plan) == pytest.approx(1.4 * expected + 30.0)
+    assert module.time_needed(a, driver, plan, staged=True) == pytest.approx(1.4 * expected + 20.0)
+    # The first final falls back on the same estimate; an ordinary tight step, once run, replaces it.
+    assert module.expected_seconds(a, driver, "final") == pytest.approx(8.0 * expected)
+    driver["slowest"]["coarse:tight"] = 441.0
+    assert module.expected_seconds(a, driver, "coarse:tight") == 441.0
+    if repeat is not None:
+        # Without a loose time or expected_seconds the repeat is the only estimate.
+        assert module.expected_seconds(a, {"slowest": {"coarse:tighten": repeat}}, "coarse:tight") == repeat
+
+
+@pytest.mark.parametrize("repeat", (1.0, 30.0))
+def test_the_first_tight_step_waits_for_the_time_a_slow_repeat_took(tmp_path: Path, repeat: float) -> None:
+    # Slowest loose 10 s, overheads 1.5 s (staging) and 2 s (archive), 40 s left in the attempt. After a cheap repeat
+    # the step needs 1.4 x 13.5 + 3.5 = 22.4 s and runs; after a 30 s one it needs 1.4 x 30 + 3.5 = 45.5 s and is
+    # deferred with that mintime, rounded up to the second.
+    module = _module()
+    a = _attempt(tmp_path / f"wait-{repeat:g}", parameters={}, deadline=time.time() + 40)
+    driver = {"slowest": {"coarse:loose": 10.0, "coarse:tighten": repeat}, "overhead": {"staging": 1.5, "archive": 2.0}}
+    plan = {"kind": "coarse", "purpose": "step", "ediff": 1e-8}
+    needed = module.time_needed(a, driver, plan)
+    assert needed == pytest.approx(22.4 if repeat == 1.0 else 45.5)
+    runs = module.guard(a, needed, plan, "before staging")
+    if repeat == 1.0:
+        assert runs is True and a.outcome is None
+    else:
+        assert runs is False and a.outcome == ("advance", "evaluate", {"mintime": "0:46"})
+
+
+def test_an_interrupted_tight_repeat_keeps_its_time_apart_and_bounds_the_tight_estimate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _module()
+    a = _attempt(tmp_path / "cut", parameters={}, deadline=time.time() + 1.0)
+    driver = {
+        "slowest": {"coarse:loose": 10.0},
+        "overhead": {"staging": 0.0, "archive": 0.0},
+        "next": {"kind": "coarse", "purpose": "tighten", "ediff": 1e-8, "y": []},
+        "interruptions": [],
+    }
+    monkeypatch.setattr(module, "save_driver", lambda *arguments: None)
+    module.interrupted(a, driver, 7, 50.5, "signal_15")
+    assert "coarse:tight" not in driver["slowest"] and driver["slowest"]["coarse:tighten"] == 50.5
+    assert module.expected_seconds(a, driver, "coarse:tight") == 50.5
+    # 1.4 x 50.5 = 70.7 s.
+    assert a.outcome == ("advance", "evaluate", {"mintime": "1:11"})
+
+
+# -- O1 review (Altair, 2026-10-18): the failure's fit, the loose stall, the diagnostic without a volume change -----
+
+
+@pytest.mark.parametrize("cap", (2, 7))
+def test_the_cap_failure_fits_every_evaluation_it_counts(tmp_path: Path, cap: int) -> None:
+    # R1: the failure was decided before the last record was written, and its fit left that evaluation out.
+    module = _module()
+    a = _attempt(tmp_path / f"fit-{cap}", model={"pulay": 20.0}, parameters={"maximum_evaluations": cap})
+    outcome = _drive(module, a)
+    assert outcome[:2] == ("fail", "vasp.relax_not_converged")
+    records = _records(a.workdir)
+    assert len(records) == cap == outcome[3]["evaluations"]
+    fits = outcome[3]["energy_gradient_consistency"]
+    assert fits == module.consistency(records)
+    steps = [r for r in records if "energy_gradient_mismatch" in r]
+    fitted = [pair[1] for fit in fits.values() for pair in fit["pairs"]]
+    assert sorted(fitted) == [r["evaluation"] for r in steps]
+    if cap == 2:
+        # Altair's case: the step that reached the cap was the only one, and the fit was empty.
+        assert fitted == [2]
+
+
+@pytest.mark.parametrize("pulay, stall", ((5.0, 0), (5.0, 3), (20.0, 3)))
+def test_repeated_loose_rejections_tighten_the_ediff_early(tmp_path: Path, pulay: float, stall: int) -> None:
+    # R2. A cubic cell 2.5 % too large, no noise, no final-mesh change: only the volume moves, and the energy falls
+    # *pulay* kbar x dV faster than the stress says. Judged by the energy at the loose EDIFF, the steps that shrink the
+    # cell are rejected before the switch limits are reached, and without the stall switch the job never leaves the
+    # loose level. With it, three rejections in a row tighten the EDIFF at the accepted point and the gradients judge
+    # from there. At 20 kbar the rise ceiling (2 meV per step, per cell: not size-extensive and no bound on the drift
+    # over many steps) still rejects every step large enough to move the volume, and the cap of 24 is reached: a
+    # documented limit, not a setting to raise (the 20 kbar is the test model's, not a measured Sn value; J-0210's
+    # fit is 2.15 kbar, which converges with or without the switch).
+    module = _module()
+    model = {**_CUBIC_MODEL, "pulay": pulay, "noise_force": 0.0, "noise_stress": 0.0, "final_metric_scale": 1.0}
+    parameters = {"maximum_evaluations": 24, "stall_rejections": stall}
+    a = _attempt(tmp_path / f"stall-{pulay:g}-{stall}", poscar=_CUBIC_POSCAR, model=model, parameters=parameters)
+    outcome = _drive(module, a)
+    coarse = [r for r in _records(a.workdir) if r["kind"] == "coarse"]
+    loose = [r for r in coarse if r["level"] == "loose"]
+    tight = [r for r in coarse if r["level"] == "tight" and r["purpose"] == "step"]
+    if stall == 0:
+        assert outcome[:2] == ("fail", "vasp.relax_not_converged") and outcome[3]["level"] == "loose"
+        assert len(coarse) == 24 and not tight
+        return
+    # The last snapshot (a failed job writes none after its last evaluation).
+    driver = json.loads(sorted((a.workdir / "relax-driver").glob("driver-*.json"))[-1].read_text(encoding="utf-8"))
+    assert driver["switch_reason"] == "stall"
+    # The switch came after exactly three rejections in a row, at a point outside the switch limits.
+    assert [r["accepted"] for r in loose[-3:]] == [False] * 3
+    switch = next(r for r in coarse if r["evaluation"] == driver["switched_at"])
+    limits = module.DEFAULTS
+    assert switch["max_force"] > limits["switch_force"] or switch["max_stress"] > limits["switch_stress"]
+    assert all(r["acceptance"] == "gradient" for r in tight)
+    if pulay == 5.0:
+        assert outcome == ("succeed",) and _report(a.workdir)["within_limits"] is True
+        assert _report(a.workdir)["switch_reason"] == "stall"
+        assert len(coarse) <= 12
+    else:
+        assert outcome[:2] == ("fail", "vasp.relax_not_converged") and outcome[3]["level"] == "tight"
+        rejected = [r for r in tight if not r["accepted"]]
+        # Every tight rejection is the ceiling's: the gradients predicted no rise.
+        assert rejected and all(r["predicted_rise"] <= 2e-4 < 2e-3 < r["energy_rise"] for r in rejected)
+
+
+def _step_record(evaluation: int, dv: float, mismatch: float, volume: float = 64.0) -> dict:
+    side = volume ** (1 / 3)
+    cell = [[side, 0.0, 0.0], [0.0, side, 0.0], [0.0, 0.0, side]]
+    return {
+        "evaluation": evaluation,
+        "compared_with": evaluation - 1,
+        "level": "tight",
+        "cell": cell,
+        "volume_change": dv,
+        "energy_gradient_mismatch": mismatch,
+    }
+
+
+def test_the_consistency_report_keeps_a_mismatch_no_volume_change_explains(tmp_path: Path) -> None:
+    # R4. Altair's case: a tight step at fixed volume whose energy rose 1.95 meV beyond its gradients' prediction.
+    module = _module()
+    sigma = 2.15 * module.KBAR
+    fit = module.consistency([_step_record(5, 0.0, 0.00195)])["tight"]
+    assert (fit["steps"], fit["volume_steps"], fit["identifiable"]) == (1, 0, False)
+    assert fit["rms_mismatch_eV"] == pytest.approx(0.00195) and fit["max_abs_mismatch_eV"] == pytest.approx(0.00195)
+    assert fit["sigma_kbar"] is None and fit["rms_after_fit_eV"] is None and fit["pairs"] == [[4, 5]]
+    # Below VOLUME_RESOLUTION (1e-4 of 64 A^3) a step does not count; one volume step is fitted exactly by
+    # construction, so it is not enough either.
+    fit = module.consistency([_step_record(5, 0.005, 0.0), _step_record(6, 1.0, -sigma)])["tight"]
+    assert (fit["volume_steps"], fit["identifiable"], fit["sigma_kbar"]) == (1, False, None)
+    assert fit["sum_dV2_A6"] == pytest.approx(1.000025)
+    # Two isotropic volume steps give the stress back, with nothing left over.
+    fit = module.consistency([_step_record(5, 1.0, -sigma), _step_record(6, -0.5, 0.5 * sigma)])["tight"]
+    assert fit["identifiable"] is True and fit["sigma_kbar"] == pytest.approx(2.15)
+    assert fit["rms_after_fit_eV"] == pytest.approx(0.0, abs=1e-15)
+    # A mismatch that does not follow the volume leaves a residual as large as itself: no isotropic stress explains it.
+    fit = module.consistency([_step_record(5, 1.0, 0.002), _step_record(6, -1.0, 0.002)])["tight"]
+    assert fit["identifiable"] is True and fit["sigma_kbar"] == pytest.approx(0.0, abs=1e-12)
+    assert fit["rms_after_fit_eV"] == pytest.approx(0.002) == fit["rms_mismatch_eV"]

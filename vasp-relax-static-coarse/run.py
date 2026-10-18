@@ -43,6 +43,28 @@ force (eV/A) and stress component (kbar) at its own geometry, with the largest
 compared with ``correction_bound_fraction`` of the limits in the report. It is
 a diagnostic: only the final static's own forces and stress decide.
 
+Step acceptance (``acceptance``): a step is rejected, and the trust radius
+halved, when its energy rises more than ``rise_tolerance`` above the accepted
+point. With ``energy`` that is the recorded energy. With ``gradient`` it is the
+rise the gradients predict along the step, ``0.5 (g0 + g1) . s``, which is exact
+on a quadratic surface and agrees with the forces and stress the stop test
+uses; a recorded rise above ``rise_ceiling`` still rejects the step. The default
+``gradient_tight`` judges by the recorded energy at the loose EDIFF, where the
+gradients carry the larger SCF error, and by the prediction from the EDIFF switch
+on. The reason is J-0210 (Sn TET, HSE with PRECFOCK Fast): its energy and stress
+disagreed by an isotropic 2.15 kbar (a fit; a basis/Pulay term is the
+hypothesis, not established), so near the stress zero every step that shrank
+the cell raised the recorded energy, and 6 of 11 tight steps that lowered
+forces and stress were rejected until the evaluation cap. Every step records
+both rises and the volume change, and the report gives per level the mismatch
+and, when the volume moved enough to identify it, the isotropic stress that
+best explains it (``energy_gradient_consistency``, a diagnostic only). Since
+such an energy can also reject the loose steps that would reach the switch
+limits, ``gradient_tight`` tightens the EDIFF early after ``stall_rejections``
+rejections in a row. The ceiling is a per-step, per-cell heuristic and caps the
+volume change of a step at about ``rise_ceiling / sigma``: a large mismatch can
+still exhaust the cap.
+
 The job succeeds once its last final static has run, whether or not that static
 is within the limits; ``within_limits`` in the job state and in
 ``relax-driver/report.json`` says which, and ``collect.py`` harvests the
@@ -59,7 +81,8 @@ the inputs are staged and again right before VASP starts. The expected time is
 the slowest evaluation so far of the same kind (coarse at the loose EDIFF,
 coarse at the tight one, final); before the first of a kind it is
 ``expected_seconds`` for coarse-loose, ``tight_cost_factor`` times the
-coarse-loose one for coarse-tight, and ``final_cost_factor`` times the slowest
+coarse-loose one for coarse-tight but at least the tight repeat of the switch
+point (timed apart: it restarts at its own geometry and is usually cheap), and ``final_cost_factor`` times the slowest
 coarse one for final. Without ``expected_seconds`` the first evaluation runs
 unguarded, and the log says so. When the attempt does not have the time, the
 evaluation is published again with that time as its ``mintime``, so a manager
@@ -195,6 +218,12 @@ WAVECAR_NOT_READ = "WAVECAR not read"
 # A run stopped by a signal this close to the attempt's deadline, or later, was stopped by the manager at that deadline:
 # the deadline is a whole second and the report arrives after VASP has exited.
 DEADLINE_SLACK = 5.0
+# How a step is judged: by the recorded energy, by the gradients' prediction of it, or by the recorded energy at the
+# loose EDIFF and the prediction from the EDIFF switch on.
+ACCEPTANCE = ("energy", "gradient", "gradient_tight")
+# The relative volume change from which a step counts towards the isotropic-stress fit of the energy-gradient
+# mismatch; with fewer than two such steps at a level, no stress is fitted (one step is explained by construction).
+VOLUME_RESOLUTION = 1e-4
 # The defaults of every driver parameter; the README gives their origin (the Sn/Ge retro of endpoint-pbe-hse).
 DEFAULTS = {
     "coarse_mesh": "",
@@ -213,7 +242,7 @@ DEFAULTS = {
     "stress_limit": 0.2,
     "time_factor": 1.4,
     "expected_seconds": 0.0,
-    "tight_cost_factor": 2.0,
+    "tight_cost_factor": 1.35,
     "final_cost_factor": 8.0,
     "maximum_evaluations": 60,
     "maximum_corrections": 1,
@@ -221,6 +250,9 @@ DEFAULTS = {
     "trust_atom": 0.03,
     "trust_strain": 0.01,
     "rise_tolerance": 2e-4,
+    "acceptance": "gradient_tight",
+    "rise_ceiling": 2e-3,
+    "stall_rejections": 3,
     "hessian_atom": 70.0,
     "hessian_bulk_modulus": 50.0,
     "hessian_seed": "",
@@ -621,7 +653,9 @@ def optimizer(a: Attempt, driver: dict) -> TrustBFGS:
         return min(limits)
 
     state = driver["optimizer"]
-    opt = TrustBFGS(state["B"], step_scale, float(parameter(a, "rise_tolerance")))
+    opt = TrustBFGS(
+        state["B"], step_scale, float(parameter(a, "rise_tolerance")), float(parameter(a, "rise_ceiling"))
+    )
     opt.trust_factor = state["trust_factor"]
     opt.current = None if state["current"] is None else tuple(state["current"])
     opt.history = state["history"]
@@ -652,6 +686,12 @@ def cost_key(a: Attempt, plan: dict) -> str:
     return "coarse:loose" if plan["ediff"] > float(parameter(a, "ediff_tight")) * (1 + 1e-9) else "coarse:tight"
 
 
+def timing_key(a: Attempt, plan: dict) -> str:
+    """Under which key an evaluation's time is kept: its cost key, or coarse:tighten for the tight repeat."""
+
+    return "coarse:tighten" if plan["purpose"] == "tighten" else cost_key(a, plan)
+
+
 def expected_seconds(a: Attempt, driver: dict, key: str) -> float | None:
     """The expected VASP seconds of the next evaluation of this cost key, or None without any estimate."""
 
@@ -663,6 +703,11 @@ def expected_seconds(a: Attempt, driver: dict, key: str) -> float | None:
     if key == "coarse:loose":
         return loose
     tight = None if loose is None else float(parameter(a, "tight_cost_factor")) * loose
+    # The tight repeat of the switch point is no estimate of a tight step (it restarts at its own geometry and is
+    # usually cheap), but a slow one is a lower bound: a cheap repeat cannot lower the estimate, a slow one raises it.
+    repeat = slowest.get("coarse:tighten")
+    if repeat is not None:
+        tight = repeat if tight is None else max(tight, repeat)
     if key == "coarse:tight":
         return tight
     coarse = slowest.get("coarse:tight") or tight
@@ -749,6 +794,12 @@ def prepare(a: Attempt) -> None:
     """Stage the structure, POTCAR and seed WAVECARs, set up the optimizer, and go on to the first evaluation."""
 
     validate_vasp_workdir(a.workdir)
+    if parameter(a, "acceptance") not in ACCEPTANCE:
+        a.fail(
+            "vasp.input_invalid",
+            f"acceptance {parameter(a, 'acceptance')!r} is not one of {', '.join(ACCEPTANCE)}",
+        )
+        return
     poscar = a.payload / a.parameter("poscar", "files/POSCAR")
     if not poscar.is_file():
         a.fail(
@@ -799,6 +850,8 @@ def prepare(a: Attempt) -> None:
         "overhead": {"staging": 0.0, "archive": 0.0},
         "wavecars": wavecars,
         "switched_at": None,
+        "switch_reason": None,
+        "rejections_in_row": 0,
         "interruptions": [],
     }
     driver["next"]["ediff"] = float(parameter(a, "ediff_loose"))
@@ -1086,7 +1139,9 @@ def evaluate(a: Attempt) -> None:
         (a.workdir / "WAVECAR").replace(a.workdir / DRIVER / kind / name)
         driver["wavecars"][kind] = {"file": name, "evaluation": index, "signature": staged["signature"]}
     driver["meshes"].setdefault(kind, staged["base_mesh"])
-    key = cost_key(a, plan)
+    # The tight repeat of the switch point restarts from a WAVECAR of the same geometry and needs few SCF steps (4
+    # against 12-19 in J-0210), so its time is kept apart from the tight steps' (see expected_seconds).
+    key = timing_key(a, plan)
     driver["slowest"][key] = max(seconds, driver["slowest"].get(key) or 0.0)
     ran = read_incar(a.workdir / "INCAR")
     fmax, smax = maxima(result["forces"], result["stress"])
@@ -1203,7 +1258,7 @@ def interrupted(a: Attempt, driver: dict, count: int, seconds: float, terminatio
     """
 
     plan = driver["next"]
-    key = cost_key(a, plan)
+    key = timing_key(a, plan)
     driver["slowest"][key] = max(seconds, driver["slowest"].get(key) or 0.0)
     interruptions = driver.setdefault("interruptions", [])
     interruptions.append({"evaluation": count + 1, "seconds": seconds, "termination": termination})
@@ -1310,10 +1365,87 @@ def tell(a: Attempt, driver: dict, record: dict) -> bool:
         return False
     energy, g = model(driver, record)
     opt = optimizer(a, driver)
-    accepted = opt.tell(record["y"], energy, g)
+    mode = acceptance_mode(a, driver)
+    accepted = opt.tell(record["y"], energy, g, mode)
     store_optimizer(driver, opt)
+    if current is not None:
+        told = opt.history[-1]
+        before = evaluation_record(a, current["evaluation"])
+        record.update(
+            acceptance=mode,
+            compared_with=current["evaluation"],
+            energy_rise=told["rise"],
+            predicted_rise=told["predicted_rise"],
+            # What the recorded energy did beyond the gradients' prediction, against the step's volume change: an
+            # isotropic stress missing from (or extra in) the computed stress shows as a constant ratio.
+            energy_gradient_mismatch=told["rise"] - told["predicted_rise"],
+            volume_change=abs(det3(record["cell"])) - abs(det3(before["cell"])),
+        )
+    # Rejections in a row since the last accepted point, for the stall switch (decide()).
+    driver["rejections_in_row"] = 0 if accepted else driver.get("rejections_in_row", 0) + 1
     accept(driver, record, accepted, opt.trust_factor)
     return True
+
+
+def acceptance_mode(a: Attempt, driver: dict) -> str:
+    """How the optimizer judges a step at this level: by the recorded energy or by the gradients' prediction."""
+
+    acceptance = parameter(a, "acceptance")
+    if acceptance == "gradient_tight":
+        return "energy" if driver["level"] == "loose" else "gradient"
+    return acceptance
+
+
+def stalls(a: Attempt, driver: dict) -> bool:
+    """True when the loose phase of ``gradient_tight`` has rejected ``stall_rejections`` steps in a row: an energy that
+    disagrees with the gradients can reject the steps that would reach the switch limits, so the EDIFF is tightened
+    at the accepted point to judge by the gradients from there (Altair O1 review R2). 0 turns the switch off."""
+
+    count = int(parameter(a, "stall_rejections"))
+    return parameter(a, "acceptance") == "gradient_tight" and count > 0 and driver.get("rejections_in_row", 0) >= count
+
+
+def consistency(records: list[dict]) -> dict:
+    """Per level, the energy-gradient mismatch of the steps (recorded minus predicted rise, each step against the
+    accepted point it was compared with, rejected steps included) and the isotropic stress that best explains it:
+    mismatch = -sigma dV, sigma in kbar (positive: the energy falls faster with volume than the stress says).
+
+    The mismatch is always reported. sigma (and the rms left after it) only when at least two steps change the volume
+    by VOLUME_RESOLUTION of the cell or more (``identifiable``); otherwise it is null, since a mismatch at fixed volume
+    has no isotropic explanation and one step is fitted exactly by construction. sigma is a fit, a diagnostic of the
+    surface, not a measured Pulay stress: trapezoid, SCF and anisotropic errors that correlate with the volume enter it
+    too. The driver does not use it."""
+
+    fits = {}
+    for level in ("loose", "tight", "corrected"):
+        steps = sorted(
+            (r for r in records if r.get("level") == level and "energy_gradient_mismatch" in r),
+            key=lambda r: r["evaluation"],
+        )
+        if not steps:
+            continue
+        mismatch = [r["energy_gradient_mismatch"] for r in steps]
+        dv = [r["volume_change"] for r in steps]
+        dv2 = sum(x * x for x in dv)
+        moving = sum(1 for r, x in zip(steps, dv) if abs(x) >= VOLUME_RESOLUTION * abs(det3(r["cell"])))
+        fit = {
+            "steps": len(steps),
+            "pairs": [[r.get("compared_with"), r["evaluation"]] for r in steps],
+            "rms_mismatch_eV": math.sqrt(sum(m * m for m in mismatch) / len(steps)),
+            "max_abs_mismatch_eV": max(abs(m) for m in mismatch),
+            "sum_dV2_A6": dv2,
+            "volume_A3": abs(det3(steps[-1]["cell"])),
+            "volume_steps": moving,
+            "identifiable": moving >= 2,
+            "sigma_kbar": None,
+            "rms_after_fit_eV": None,
+        }
+        if fit["identifiable"]:
+            sigma = -sum(m * x for m, x in zip(mismatch, dv)) / dv2
+            rest = [m + sigma * x for m, x in zip(mismatch, dv)]
+            fit.update(sigma_kbar=sigma / KBAR, rms_after_fit_eV=math.sqrt(sum(x * x for x in rest) / len(rest)))
+        fits[level] = fit
+    return fits
 
 
 def accept(driver: dict, record: dict, accepted: bool, trust_factor: float) -> None:
@@ -1371,11 +1503,15 @@ def plan_next(a: Attempt, driver: dict, y: list[float], kind: str, purpose: str,
     return "evaluate"
 
 
-def exhausted(a: Attempt, driver: dict, purpose: str) -> bool:
-    """Fail the job when the coarse evaluations are used up before the next one (*purpose*); True if it did."""
+def exhausted(a: Attempt, driver: dict, purpose: str, pending: dict) -> bool:
+    """Fail the job when the coarse evaluations are used up before the next one (*purpose*); True if it did.
+
+    *pending* is the evaluation being decided, whose record is written after this: the failure's fit includes it, so
+    it covers the same evaluations as the count."""
 
     if driver["coarse_evaluations"] < int(parameter(a, "maximum_evaluations")):
         return False
+    records = [r for r in committed_records(a) if r["evaluation"] != pending["evaluation"]] + [pending]
     current = driver["current"]
     a.fail(
         "vasp.relax_not_converged",
@@ -1387,20 +1523,27 @@ def exhausted(a: Attempt, driver: dict, purpose: str) -> bool:
             "max_stress": current["max_stress"],
             "level": driver["level"],
             "next": purpose,
+            "energy_gradient_consistency": consistency(records),
         },
     )
     return True
 
 
-def next_coarse(a: Attempt, driver: dict) -> str | None:
-    """Go to the final static when the accepted point is converged at the tight EDIFF, else ask for a step."""
+def committed_records(a: Attempt) -> list[dict]:
+    paths = sorted((a.workdir / DRIVER / "evaluations").glob("*/record.json"))
+    return [json.loads(path.read_text(encoding="utf-8")) for path in paths]
+
+
+def next_coarse(a: Attempt, driver: dict, record: dict) -> str | None:
+    """Go to the final static when the accepted point is converged at the tight EDIFF, else ask for a step (after
+    evaluation *record*)."""
 
     tight = float(parameter(a, "ediff_tight"))
     current = driver["current"]
     converged = within(a, current["max_force"], current["max_stress"])
     if driver["level"] != "loose" and current["EDIFF"] <= tight * (1 + 1e-9) and converged:
         return plan_next(a, driver, current["y"], "final", "final", float(parameter(a, "final_ediff")))
-    if exhausted(a, driver, "step"):
+    if exhausted(a, driver, "step", record):
         return None
     reference = driver["reference"]
     opt = optimizer(a, driver)
@@ -1463,29 +1606,36 @@ def decide(a: Attempt, driver: dict, record: dict) -> str | None:
                 return None
             if flag(parameter(a, "offset_probe")):
                 return plan_next(a, driver, record["y"], "final", "probe", float(parameter(a, "final_ediff")))
-            return next_coarse(a, driver)
+            return next_coarse(a, driver, record)
         if not tell(a, driver, record):
             return None
         current = driver["current"]
         resolvable = current["max_force"] <= float(parameter(a, "switch_force")) and current["max_stress"] <= float(
             parameter(a, "switch_stress")
         )
-        if driver["level"] == "loose" and resolvable:
+        stalled = driver["level"] == "loose" and not resolvable and stalls(a, driver)
+        if driver["level"] == "loose" and (resolvable or stalled):
             # The tight repeat is mandatory: without budget for it the job stops instead of skipping it.
-            if exhausted(a, driver, "tighten"):
+            if exhausted(a, driver, "tighten", record):
                 return None
             driver["level"] = "tight"
             driver["switched_at"] = current["evaluation"]
-            a.log.append("note", f"EDIFF tightened after evaluation {record['evaluation']}")
+            driver["switch_reason"] = "stall" if stalled else "limits"
+            a.log.append(
+                "note",
+                f"EDIFF tightened after evaluation {record['evaluation']}"
+                + (f" ({driver['rejections_in_row']} loose rejections in a row; stall switch)" if stalled else ""),
+            )
+            driver["rejections_in_row"] = 0
             return plan_next(a, driver, current["y"], "coarse", "tighten", float(parameter(a, "ediff_tight")))
-        return next_coarse(a, driver)
+        return next_coarse(a, driver, record)
 
     offset = measure_offset(a, driver, record)
     if offset is None:
         return None
     record["offset"] = {k: offset[k] for k in ("coarse_evaluation", "max_force", "max_stress", "energy")}
     if record["purpose"] == "probe":
-        return next_coarse(a, driver)
+        return next_coarse(a, driver, record)
     driver["finals"].append(record["evaluation"])
     record["within_limits"] = within(a, record["max_force"], record["max_stress"])
     if record["within_limits"] or driver["corrections"] >= int(parameter(a, "maximum_corrections")):
@@ -1504,7 +1654,7 @@ def decide(a: Attempt, driver: dict, record: dict) -> str | None:
     fmax, smax = maxima(*corrected(driver, coarse))
     driver["current"].update(max_force=fmax, max_stress=smax)
     a.log.append("note", f"final static {record['evaluation']} missed the limits; correcting the coarse surface once")
-    return next_coarse(a, driver)
+    return next_coarse(a, driver, record)
 
 
 def finish(a: Attempt, driver: dict, state: dict) -> None:
@@ -1548,9 +1698,11 @@ def finish(a: Attempt, driver: dict, state: dict) -> None:
         "coarse_evaluations": driver["coarse_evaluations"],
         "corrections": driver["corrections"],
         "switched_at": driver["switched_at"],
+        "switch_reason": driver.get("switch_reason"),
         "meshes": driver["meshes"],
         "offsets": driver["offsets"],
         "correction_model_bound": bound,
+        "energy_gradient_consistency": consistency(records),
         "symmetry_operations": {"start": len(reference["symmetry"]), "final": len(end)},
         "restarts": {
             "requested": sum(1 for r in records if r["restart_requested"]),

@@ -148,7 +148,9 @@ number of operations at the start and at the final geometry.
 Stages:
 
 1. **Coarse, loose.** Evaluations on the coarse mesh at `ediff_loose`, until
-   the accepted point is within `switch_force` / `switch_stress`.
+   the accepted point is within `switch_force` / `switch_stress`, or, with
+   `acceptance = gradient_tight`, after `stall_rejections` rejected steps in a
+   row (the stall switch: `switch_reason` in the report is `limits` or `stall`).
 2. **Coarse, tight.** The switch point is evaluated again at `ediff_tight`,
    and that evaluation *replaces* the optimizer's accepted point without an
    acceptance test or a curvature update, so energies and gradients at two
@@ -189,7 +191,10 @@ largest staging and archiving overhead measured so far. It is checked before
 staging and again right before VASP starts. The expected time is the slowest
 evaluation so far of the same kind (coarse at the loose EDIFF, coarse at the
 tight one, final); before the first of a kind it is `expected_seconds` (first
-coarse), `tight_cost_factor` times the loose one (first tight), or
+coarse), `tight_cost_factor` times the loose one but at least the tight repeat
+of the switch point (first tight: the repeat restarts at its own geometry and
+is usually cheap, so it is timed apart and only a slow one raises the
+estimate), or
 `final_cost_factor` times the slowest coarse one (first final). Without
 `expected_seconds` the first evaluation runs unguarded and the log says so;
 give it for any run with a time limit. An evaluation without the time is
@@ -249,7 +254,7 @@ without running VASP.
 stage, mesh, EDIFF, PRECFOCK, ICHARG and remedies in force, energy, forces,
 stress, SCF steps, VASP and staging seconds, the restart evidence, and whether
 the offset was applied. `relax-driver/report.json` gathers every record and
-every measured offset, the correction-model bound, the symmetry counts, a
+every measured offset, the correction-model bound, the energy-gradient consistency fit, the symmetry counts, a
 restart summary, the interruptions and the records of incomplete runs, and is published with `publish_data`. `relax/` holds the
 coarse evaluation at the final geometry and the final static is at the top, the
 layout of `vasp-relax-static` that `collect.py` reads.
@@ -277,11 +282,13 @@ see `notebook/retro/owen-replay-2026-10-17.md` and
 | `force_limit`, `stress_limit` | 0.003 eV/Å, 0.2 kbar | The campaign's acceptance limits (largest atomic force, largest stress component). |
 | `time_factor` | 1.4 | Time-guard factor on the expected VASP time. |
 | `expected_seconds` | 0 (none) | Expected VASP seconds of the first coarse evaluation; without it the first evaluation is unguarded. |
-| `tight_cost_factor` | 2 | Expected cost of the first tight-EDIFF coarse evaluation relative to the slowest loose one, until one has run. Not yet measured; deliberately generous. |
+| `tight_cost_factor` | 1.35 | Expected cost of the first tight-EDIFF coarse step relative to the slowest loose evaluation, until one has run; the tight repeat of the switch point, timed apart since it restarts at its own geometry, is a lower bound (a cheap repeat, 149 s against 441 s for the next step in J-0210, cannot lower the estimate; a slow one raises it). Measured mean tight/loose warm cost: 1.15 (KBeF3 TET, J-0209), 1.34 (KSnF3 TET, J-0210). |
 | `final_cost_factor` | 8 | Expected cost of the first final-mesh evaluation relative to the slowest coarse one. It is used only before any final-mesh evaluation has run. It is a rough estimate: mesh 5³ → 6³ cost 3.4× per SCF step, and Normal cost 2.3–2.8× Fast. |
 | `maximum_evaluations`, `maximum_corrections` | 60, 1 | Cap on coarse evaluations (strict, including the tight repeat), and the number of offset corrections. |
 | `maximum_interruptions` | 3 | Evaluations deferred because the manager stopped VASP at the attempt's deadline; one more fails the job. Every deferral is a new activation, which no other driver cap bounds. |
-| `trust_atom`, `trust_strain`, `rise_tolerance` | 0.03 Å, 0.01, 2e-4 eV | Largest step per atom (physical displacement in the current cell) and per strain component (relative to the current cell) at trust factor 1. An evaluation whose energy rises more than `rise_tolerance` above the accepted point at the same EDIFF is rejected and the trust factor halves. |
+| `trust_atom`, `trust_strain`, `rise_tolerance` | 0.03 Å, 0.01, 2e-4 eV | Largest step per atom (physical displacement in the current cell) and per strain component (relative to the current cell) at trust factor 1. An evaluation whose energy rises more than `rise_tolerance` above the accepted point at the same EDIFF is rejected and the trust factor halves; which energy rise is set by `acceptance`. |
+| `acceptance`, `rise_ceiling` | `gradient_tight`, 2e-3 eV | `energy`: the recorded energy rise. `gradient`: the rise the gradients predict along the step, ½ (g₀ + g₁)·s (exact on a quadratic), and a recorded rise above `rise_ceiling` still rejects. `gradient_tight`: `energy` at the loose EDIFF, `gradient` from the switch on. KSnF3 TET (J-0210, HSE, PRECFOCK Fast) had an energy that fell 2.15 kbar × ΔV faster with volume than its stress said (a fit; that it is a basis/Pulay term is a hypothesis, supported by restart jumps but not isolated); judged by the energy, 6 of 11 tight steps that lowered forces and stress were rejected and the job hit its cap at 0.0037 eV/Å. Gradient acceptance does not prove that forces and stress improve or that the gradients are right; the final static's own forces and stress decide. The ceiling is a per-step, per-cell heuristic: not size-extensive, and no bound on a drift over many smaller rises or on a downward jump. It also limits the cure: with a mismatch of σ kbar a step can change the volume by only about 1602 × `rise_ceiling` / σ Å³ (0.16 Å³ at 20 kbar, where the test model's cubic relaxation reaches a 24-evaluation cap; 1.5 Å³ at 2.15 kbar). Each step records `energy_rise`, `predicted_rise`, `energy_gradient_mismatch` and `volume_change`; the report (and a `vasp.relax_not_converged` failure, over the same evaluations it counts) gives per level the steps compared, the rms and largest mismatch, ΣΔV², and the isotropic stress that best explains the mismatch (`energy_gradient_consistency`). That stress is null unless at least two steps change the volume by 1e-4 of the cell (`identifiable`); it is a fit to the surface, not a measured Pulay stress, and the driver does not use it. |
+| `stall_rejections` | 3 | With `gradient_tight`: this many rejected loose steps in a row tighten the EDIFF at the accepted point before the switch limits are reached, so the gradients judge from there (0: off). An energy that disagrees with the stress can reject the loose steps that would reach the limits: in the test model's cubic relaxation at 5 kbar the job otherwise stays loose until a 24-evaluation cap, and converges in 10 evaluations with the switch. It is one switch, and its tight repeat counts in the cap (Altair O1 review R2, 2026-10-18). |
 | `hessian_atom`, `hessian_bulk_modulus` | 70 eV/Å², 50 GPa | The isotropic initial Hessian model; both must be positive. In the offline replay, scaling it by ×0.5 to ×2 changed the KGeF3 TET count from 15 to 19 evaluations. |
 | `hessian_seed` | empty | Optional payload JSON `{"hessian": [[...]]}`, (3N + 6)², in the driver's coordinates: Cartesian displacements in Å, then the √2-weighted Voigt strain times V^(1/3). It must be finite, positive definite and invariant under the structure's symmetry operations (checked), or the job fails with `vasp.hessian_seed_invalid`. Off by default: the PBE Hessians fitted from the campaign's trajectories were indefinite. |
 | `hessian_seed_symmetrize` | false | Project the seed onto the structure's symmetry (average of P H Pᵀ over the operations, logged with the largest change) instead of refusing a seed that is not invariant. `vasp-relax-static-hse` sets it for a PBE Hessian, learned along a path that may have started at lower symmetry. |
