@@ -1,0 +1,84 @@
+[workflow]
+name = "vasp.phonons"
+description = "harmonic phonons of one structure with phonopy: an optional tight relaxation, one single point per displaced supercell (vasp.static), then force constants, band structure, density of states and thermodynamics, with an optional non-analytical correction"
+declaration_uri = "https://raw.githubusercontent.com/httk/workflows-vasp/refs/tags/wf-decl-v0.3.0/vasp-phonons/declaration.json"
+declaration_file = "declaration.json"
+requires = ["httk-workflow>=2.1.1", "httk-workflow-vasp>=0.1.0", "httk-atomistic>=2.1.2", "httk-analyse>=2.1.0", "phonopy>=2.20", "spglib>=2.0"]
+
+[workflow.runner]
+entry = "run.py"
+steps = ["start", "relax_failed", "displace", "analyse"]
+initial_step = "start"
+
+[workflow.calls]
+relax = "vasp.relax"
+static = "vasp.static"
+
+[workflow.inputs.structure]
+destination = "POSCAR"
+role = "initial_structure"
+entry_type = "structures"
+required = true
+
+[workflow.outputs.relaxed_structure]
+entry_type = "structures"
+role = "relaxed_structure"
+ref = "https://schemas.optimade.org/defs/v1.3/entrytypes/optimade/structures"
+description = "The tightly relaxed structure (only with relax = true)."
+product_of = "initial_structure"
+
+[workflow.outputs.phonon_cell]
+entry_type = "structures"
+role = "phonon_cell"
+ref = "https://schemas.optimade.org/defs/v1.3/entrytypes/optimade/structures"
+description = "The HPKOT primitive cell whose dynamical matrix phonopy diagonalized; the phonon records refer to it."
+product_of = "initial_structure"
+
+[workflow.outputs.phonon_band_structure]
+entry_type = "records"
+role = "phonon_band_structure"
+ref = "https://schemas.httk.org/defs/v0.1/properties/thermodynamics/phonon_band_structure"
+description = "The phonon frequencies of the phonon cell along the HPKOT q-point path, in THz."
+product_of = "phonon_cell"
+
+[workflow.outputs.phonon_density_of_states]
+entry_type = "records"
+role = "phonon_density_of_states"
+ref = "https://schemas.httk.org/defs/v0.1/properties/thermodynamics/phonon_density_of_states"
+description = "The phonon density of states of the phonon cell, in modes per THz per cell."
+product_of = "phonon_cell"
+
+[workflow.outputs.vibrational_thermodynamics]
+entry_type = "records"
+role = "vibrational_thermodynamics"
+ref = "https://schemas.httk.org/defs/v0.1/properties/thermodynamics/vibrational_thermodynamics"
+description = "The harmonic vibrational free energy, internal energy, entropy and heat capacity of the phonon cell versus temperature."
+product_of = "phonon_cell"
+
+[workflow.outputs.zero_point_energy]
+entry_type = "records"
+role = "zero_point_energy"
+ref = "https://schemas.httk.org/defs/v0.1/properties/thermodynamics/zero_point_energy"
+description = "The vibrational zero-point energy of the phonon cell, in eV."
+product_of = "phonon_cell"
+
+[workflow.outputs.phonons_result]
+entry_type = "files"
+role = "phonons_result"
+description = "phonons.json: every input of the phonon analysis (the forces and settings of each displacement, the supercell, the non-analytical correction) and its results."
+product_of = "phonon_cell"
+
+[workflow.outputs.phonopy_disp]
+entry_type = "files"
+role = "phonopy_disp"
+description = "phonopy_disp.yaml: phonopy's unit cell, supercell matrix and displacements."
+product_of = "phonon_cell"
+
+[workflow.outputs.force_sets]
+entry_type = "files"
+role = "force_sets"
+description = "FORCE_SETS: phonopy's displacements with the forces of each displaced supercell."
+product_of = "phonon_cell"
+
+[workflow.collect]
+file = "collect.py"

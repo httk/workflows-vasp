@@ -1,0 +1,68 @@
+[workflow]
+name = "vasp.dielectric"
+description = "the dielectric response of one insulating structure by density-functional perturbation theory: one IBRION = 8, LEPSILON run giving the static and high-frequency dielectric tensors, Born effective charges and piezoelectric tensor"
+declaration_uri = "https://raw.githubusercontent.com/httk/workflows-vasp/refs/tags/wf-decl-v0.3.0/vasp-dielectric/declaration.json"
+declaration_file = "declaration.json"
+requires = ["httk-workflow>=2.1.1", "httk-workflow-vasp>=0.1.0", "httk-atomistic>=2.1.2", "httk-analyse>=2.1.0"]
+
+[workflow.runner]
+entry = "run.py"
+steps = ["publish", "prepare", "run"]
+initial_step = "prepare"
+
+[workflow.inputs.structure]
+destination = "POSCAR"
+role = "initial_structure"
+entry_type = "structures"
+required = true
+
+[workflow.outputs.dielectric_cell]
+entry_type = "structures"
+role = "dielectric_cell"
+ref = "https://schemas.optimade.org/defs/v1.3/entrytypes/optimade/structures"
+description = "The cell the response refers to: the input structure as given."
+product_of = "initial_structure"
+
+[workflow.outputs.static_relative_permittivity]
+entry_type = "records"
+role = "static_relative_permittivity"
+ref = "https://schemas.httk.org/defs/v0.1/properties/electronic/static_relative_permittivity"
+description = "The isotropic mean of the static (electronic plus ionic) relative permittivity tensor."
+product_of = "dielectric_cell"
+
+[workflow.outputs.high_frequency_relative_permittivity]
+entry_type = "records"
+role = "high_frequency_relative_permittivity"
+ref = "https://schemas.httk.org/defs/v0.1/properties/electronic/high_frequency_relative_permittivity"
+description = "The isotropic mean of the high-frequency (electronic, ion-clamped, with local-field effects) relative permittivity tensor."
+product_of = "dielectric_cell"
+
+[workflow.outputs.born_effective_charges]
+entry_type = "records"
+role = "born_effective_charges"
+ref = "https://schemas.httk.org/defs/v0.1/properties/electronic/born_effective_charges"
+description = "The Born effective charge tensors of the sites of the dielectric cell, in the POSCAR's site order, as VASP prints them (row: field direction, column: displacement direction)."
+product_of = "dielectric_cell"
+
+[workflow.outputs.piezoelectric_tensor]
+entry_type = "records"
+role = "piezoelectric_tensor"
+ref = "https://schemas.httk.org/defs/v0.1/properties/mechanics/piezoelectric_tensor"
+description = "The relaxed-ion piezoelectric tensor (electronic plus ionic), in C/m^2, Voigt order xx yy zz yz xz xy."
+product_of = "dielectric_cell"
+
+[workflow.outputs.total_energy]
+entry_type = "records"
+role = "total_energy"
+ref = "https://schemas.httk.org/defs/v0.1/properties/core/total_energy"
+description = "The total energy of the structure."
+product_of = "initial_structure"
+
+[workflow.outputs.dielectric_response]
+entry_type = "files"
+role = "dielectric_response"
+description = "dielectric.json: the dielectric tensors, Born effective charges and piezoelectric tensors as JSON, in the site order of the POSCAR."
+product_of = "initial_structure"
+
+[workflow.collect]
+file = "collect.py"

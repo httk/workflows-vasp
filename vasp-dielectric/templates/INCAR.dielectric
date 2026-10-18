@@ -1,0 +1,37 @@
+# The dielectric response of an insulator by density-functional perturbation
+# theory, with the electronic settings of INCAR.static in vasp-static and
+# atomate2's StaticSetGenerator(lepsilon=True): IBRION=8 (DFPT for the ionic
+# contribution and the Born charges), LEPSILON=.TRUE., LPEAD=.TRUE. (the
+# finite-difference derivative of the orbitals with respect to k), NSW=1,
+# ISMEAR=-5 and LREAL=.FALSE. (the response needs reciprocal-space projectors).
+# httk choices: EDIFF=1E-7 (the response needs a tight density), atomic
+# starting charges (ICHARG=2), and no WAVECAR or CHGCAR written.
+# Insulators only: the response of a metal is not defined by this method.
+LWAVE=.FALSE.
+LCHARG=.FALSE.
+ISTART=0
+ICHARG=2
+LORBIT=11
+LMAXMIX=6
+
+ISPIN=2
+
+ALGO=Normal
+PREC=Accurate
+ENCUT=600
+ENAUG=900
+LREAL=.FALSE.
+LASPH=.TRUE.
+ADDGRID=.FALSE.
+SYMPREC=1e-4
+
+ISMEAR=-5
+
+NELMIN=5
+NELM=100
+EDIFF=1E-7
+
+NSW=1
+IBRION=8
+LEPSILON=.TRUE.
+LPEAD=.TRUE.

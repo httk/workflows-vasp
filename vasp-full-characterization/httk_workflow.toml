@@ -1,0 +1,50 @@
+[workflow]
+name = "vasp.full-characterization"
+description = "characterize one material with the other workflows-vasp packages as child jobs: one tight relaxation, then band structure, density of states, elastic tensor, equation of state, dielectric response (insulators) and phonons, in parallel where their dependencies allow, without running any VASP calculation twice"
+declaration_uri = "https://raw.githubusercontent.com/httk/workflows-vasp/refs/tags/wf-decl-v0.3.0/vasp-full-characterization/declaration.json"
+declaration_file = "declaration.json"
+requires = ["httk-workflow>=2.1.1", "httk-workflow-vasp>=0.1.0", "httk-atomistic>=2.1.2", "httk-analyse>=2.1.0", "phonopy>=2.20", "spglib>=2.0"]
+
+# No maxtime: a parent's maxtime would cap every child's.
+[workflow.runner]
+entry = "run.py"
+steps = ["start", "relax_failed", "plan", "progress"]
+initial_step = "start"
+
+[workflow.calls]
+relax = "vasp.relax"
+band_structure = "vasp.band-structure"
+dos = "vasp.dos"
+elastic = "vasp.elastic"
+eos = "vasp.eos"
+dielectric = "vasp.dielectric"
+phonons = "vasp.phonons"
+
+[workflow.inputs.structure]
+destination = "POSCAR"
+role = "initial_structure"
+entry_type = "structures"
+required = true
+
+[workflow.outputs.relaxed_structure]
+entry_type = "structures"
+role = "relaxed_structure"
+ref = "https://schemas.optimade.org/defs/v1.3/entrytypes/optimade/structures"
+description = "The tightly relaxed structure: the CONTCAR of the relaxation child."
+product_of = "initial_structure"
+
+[workflow.outputs.standardized_structure]
+entry_type = "structures"
+role = "standardized_structure"
+ref = "https://schemas.optimade.org/defs/v1.3/entrytypes/optimade/structures"
+description = "The cell every property child starts from: the HPKOT primitive cell of the relaxed structure, or the relaxed structure itself when standardize is false."
+product_of = "relaxed_structure"
+
+[workflow.outputs.characterization]
+entry_type = "files"
+role = "characterization"
+description = "characterization.json: every child job (id, key, outcome) and the decisions taken (the insulator decision from the relaxation's band gap, which children ran and with what)."
+product_of = "standardized_structure"
+
+[workflow.collect]
+file = "collect.py"

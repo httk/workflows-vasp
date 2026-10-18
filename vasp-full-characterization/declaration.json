@@ -1,0 +1,39 @@
+{
+  "$id": "https://raw.githubusercontent.com/httk/workflows-vasp/refs/tags/wf-decl-v0.3.0/vasp-full-characterization/declaration.json",
+  "title": "VASP full characterization",
+  "description": "This workflow declaration defines the httk vasp-full-characterization workflow: it characterizes one material by running the vasp-relax, vasp-band-structure, vasp-dos, vasp-elastic, vasp-eos, vasp-dielectric (insulators only) and vasp-phonons workflows as child jobs, each under its own declaration, on one shared tight relaxation and its standardized cell, without running any VASP calculation twice: the density of states reads the band structure's self-consistent charge density, and the phonons read the dielectric response's Born effective charges.\nIt defines the meaning of its roles: input role initial_structure is a structures entry containing the structure to characterize.\nOutput role relaxed_structure is a structures entry containing the tightly relaxed structure, the CONTCAR of the relaxation child; output role standardized_structure is a structures entry containing the cell every property child starts from, the HPKOT primitive cell of the relaxed structure, or the relaxed structure itself when standardize is false; and output role characterization is a files entry containing characterization.json, every child job (id, key, outcome) and the decisions taken (the insulator decision from the relaxation's band gap, which children ran and with what).",
+  "x-httk-definition": {
+    "kind": "workflow_declaration",
+    "format": "0.1",
+    "version": "0.3.0",
+    "name": "vasp-full-characterization",
+    "label": "vasp_full_characterization_workflow_httk"
+  },
+  "inputs": [
+    {
+      "name": "initial_structure",
+      "entry_type": "structures",
+      "ref": "https://schemas.optimade.org/defs/v1.3/entrytypes/optimade/structures",
+      "description": "The structure to characterize."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "relaxed_structure",
+      "entry_type": "structures",
+      "ref": "https://schemas.optimade.org/defs/v1.3/entrytypes/optimade/structures",
+      "description": "The tightly relaxed structure: the CONTCAR of the relaxation child."
+    },
+    {
+      "name": "standardized_structure",
+      "entry_type": "structures",
+      "ref": "https://schemas.optimade.org/defs/v1.3/entrytypes/optimade/structures",
+      "description": "The cell every property child starts from: the HPKOT primitive cell of the relaxed structure, or the relaxed structure itself when standardize is false."
+    },
+    {
+      "name": "characterization",
+      "entry_type": "files",
+      "description": "characterization.json: every child job (id, key, outcome) and the decisions taken (the insulator decision from the relaxation's band gap, which children ran and with what)."
+    }
+  ]
+}

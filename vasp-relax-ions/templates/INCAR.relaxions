@@ -1,0 +1,38 @@
+# One accurate ionic relaxation in a fixed cell, with the electronic settings of
+# INCAR.relax in vasp-relax made tight as atomate2's ElasticRelaxMaker (its
+# RelaxConstVolSetGenerator) makes them: EDIFF=1E-7, EDIFFG=-0.001, LREAL=.FALSE.
+# ISIF=2 relaxes the positions only; the runner sets ISIF from its isif parameter
+# (2, or 4 to relax the cell shape at fixed volume). ISMEAR=0 with SIGMA=0.05,
+# since Bloechl-tetrahedron forces and stresses are unreliable for metals.
+# httk choices: IBRION=2 with NSW=99, NELM=100 (more electronic steps for the
+# tight EDIFF), atomic starting charges, and no WAVECAR or CHGCAR written.
+LWAVE=.FALSE.
+LCHARG=.FALSE.
+ISTART=0
+ICHARG=2
+LORBIT=11
+LMAXMIX=6
+
+ISPIN=2
+
+ALGO=Normal
+PREC=Accurate
+ENCUT=600
+ENAUG=900
+LREAL=.FALSE.
+LASPH=.TRUE.
+ADDGRID=.FALSE.
+SYMPREC=1e-4
+
+ISMEAR=0
+SIGMA=0.05
+
+NELMIN=5
+NELM=100
+EDIFF=1E-7
+EDIFFG=-0.001
+MAXMIX=80
+
+NSW=99
+IBRION=2
+ISIF=2

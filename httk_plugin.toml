@@ -1,4 +1,4 @@
 [plugin]
 name = "workflows-vasp"
-description = "Packaged VASP workflows (relax, relax in Bash, static, relax-then-static, coarse-mesh relax-then-static, HSE from PBE relax-then-static, general, band structure)"
-workflows = ["vasp-relax", "vasp-relax-bash", "vasp-static", "vasp-relax-static", "vasp-relax-static-coarse", "vasp-relax-static-hse", "vasp-general", "vasp-band-structure"]
+description = "Packaged VASP workflows (relax, relax in Bash, static, relax-then-static, coarse-mesh relax-then-static, HSE from PBE relax-then-static, general, band structure, fixed-cell ionic relax, density of states, dielectric response, elastic tensor, equation of state, phonons, full characterization)"
+workflows = ["vasp-relax", "vasp-relax-bash", "vasp-static", "vasp-relax-static", "vasp-relax-static-coarse", "vasp-relax-static-hse", "vasp-general", "vasp-band-structure", "vasp-relax-ions", "vasp-dos", "vasp-dielectric", "vasp-elastic", "vasp-eos", "vasp-phonons", "vasp-full-characterization"]

@@ -1,0 +1,66 @@
+[workflow]
+name = "vasp.eos"
+description = "the Birch–Murnaghan equation of state of one structure: an optional tight relaxation, then one fixed-volume ionic and cell-shape relaxation per volume (vasp.relax-ions, ISIF = 4), optionally a single point of each, fitted with httk-analyse"
+declaration_uri = "https://raw.githubusercontent.com/httk/workflows-vasp/refs/tags/wf-decl-v0.3.0/vasp-eos/declaration.json"
+declaration_file = "declaration.json"
+requires = ["httk-workflow>=2.1.1", "httk-workflow-vasp>=0.1.0", "httk-atomistic>=2.1.2", "httk-analyse>=2.1.0"]
+
+[workflow.runner]
+entry = "run.py"
+steps = ["start", "relax_failed", "deform", "statics", "fit"]
+initial_step = "start"
+
+[workflow.calls]
+relax = "vasp.relax"
+relax_ions = "vasp.relax-ions"
+static = "vasp.static"
+
+[workflow.inputs.structure]
+destination = "POSCAR"
+role = "initial_structure"
+entry_type = "structures"
+required = true
+
+[workflow.outputs.relaxed_structure]
+entry_type = "structures"
+role = "relaxed_structure"
+ref = "https://schemas.optimade.org/defs/v1.3/entrytypes/optimade/structures"
+description = "The relaxed structure whose volume was varied."
+product_of = "initial_structure"
+
+[workflow.outputs.equilibrium_volume]
+entry_type = "records"
+role = "equilibrium_volume"
+ref = "https://schemas.httk.org/defs/v0.1/properties/mechanics/equilibrium_volume"
+description = "The volume at the minimum of the fitted Birch–Murnaghan equation of state."
+product_of = "relaxed_structure"
+
+[workflow.outputs.equilibrium_energy]
+entry_type = "records"
+role = "equilibrium_energy"
+ref = "https://schemas.httk.org/defs/v0.1/properties/mechanics/equilibrium_energy"
+description = "The energy at the minimum of the fitted Birch–Murnaghan equation of state."
+product_of = "relaxed_structure"
+
+[workflow.outputs.bulk_modulus]
+entry_type = "records"
+role = "bulk_modulus"
+ref = "https://schemas.httk.org/defs/v0.1/properties/mechanics/bulk_modulus"
+description = "The bulk modulus at the equilibrium volume of the fitted Birch–Murnaghan equation of state."
+product_of = "relaxed_structure"
+
+[workflow.outputs.bulk_modulus_pressure_derivative]
+entry_type = "records"
+role = "bulk_modulus_pressure_derivative"
+ref = "https://schemas.httk.org/defs/v0.1/properties/mechanics/bulk_modulus_pressure_derivative"
+description = "The pressure derivative of the bulk modulus at the equilibrium volume of the fitted Birch–Murnaghan equation of state."
+product_of = "relaxed_structure"
+
+[workflow.outputs.eos_result]
+entry_type = "files"
+role = "eos_result"
+description = "eos.json: every child's settings and outcome, the volumes and energies fitted, and the fitted values with residuals, RMSE and condition number."
+product_of = "relaxed_structure"
+
+[workflow.collect]
+file = "collect.py"

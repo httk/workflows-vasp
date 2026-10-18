@@ -1,0 +1,34 @@
+[workflow]
+name = "vasp.relax-ions"
+description = "one accurate ionic relaxation of one structure in its fixed cell (ISIF = 2) or at fixed volume (ISIF = 4), from an editable INCAR template, with the reviewed remedy ladder"
+declaration_uri = "https://raw.githubusercontent.com/httk/workflows-vasp/refs/tags/wf-decl-v0.3.0/vasp-relax-ions/declaration.json"
+declaration_file = "declaration.json"
+requires = ["httk-workflow>=2.1.1", "httk-workflow-vasp>=0.1.0", "httk-atomistic>=2.1.2"]
+
+[workflow.runner]
+entry = "run.py"
+steps = ["publish", "prepare", "run"]
+initial_step = "prepare"
+
+[workflow.inputs.structure]
+destination = "POSCAR"
+role = "initial_structure"
+entry_type = "structures"
+required = true
+
+[workflow.outputs.relaxed_structure]
+entry_type = "structures"
+role = "relaxed_structure"
+ref = "https://schemas.optimade.org/defs/v1.3/entrytypes/optimade/structures"
+description = "The relaxed geometry, at the volume of the input structure."
+product_of = "initial_structure"
+
+[workflow.outputs.total_energy]
+entry_type = "records"
+role = "total_energy"
+ref = "https://schemas.httk.org/defs/v0.1/properties/core/total_energy"
+description = "The final total energy of the relaxed structure."
+product_of = "relaxed_structure"
+
+[workflow.collect]
+file = "collect.py"

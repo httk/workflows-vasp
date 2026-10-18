@@ -1,0 +1,87 @@
+{
+  "$id": "https://raw.githubusercontent.com/httk/workflows-vasp/refs/tags/wf-decl-v0.3.0/vasp-elastic/declaration.json",
+  "title": "VASP elastic tensor",
+  "description": "This workflow declaration defines the httk vasp-elastic workflow: it computes the elastic stiffness tensor of a crystal structure with VASP, from an optional tight relaxation and one fixed-cell ionic relaxation per strained cell, fitted to the stresses by least squares.\nIt defines the meaning of its roles: input role initial_structure is a structures entry containing the structure whose elastic tensor is computed.\nOutput role relaxed_structure is a structures entry containing the relaxed structure that was strained (with relax = false, the input structure); output role elastic_tensor is a records entry containing the fitted elastic stiffness tensor in Voigt form, in GPa, in the Cartesian frame of the relaxed structure; output role compliance_tensor is a records entry containing the elastic compliance tensor in Voigt form, in GPa^-1, in the Cartesian frame of the relaxed structure; output role bulk_modulus_voigt is a records entry containing the Voigt bulk modulus, in GPa; output role bulk_modulus_reuss is a records entry containing the Reuss bulk modulus, in GPa; output role bulk_modulus_hill is a records entry containing the Hill bulk modulus, in GPa; output role shear_modulus_voigt is a records entry containing the Voigt shear modulus, in GPa; output role shear_modulus_reuss is a records entry containing the Reuss shear modulus, in GPa; output role shear_modulus_hill is a records entry containing the Hill shear modulus, in GPa; output role universal_anisotropy_index is a records entry containing the universal elastic anisotropy index; and output role elastic_result is a files entry containing elastic.json: every fit input (the strains, stresses and settings of each deformation) and the fitted values.",
+  "x-httk-definition": {
+    "kind": "workflow_declaration",
+    "format": "0.1",
+    "version": "0.3.0",
+    "name": "vasp-elastic",
+    "label": "vasp_elastic_workflow_httk"
+  },
+  "inputs": [
+    {
+      "name": "initial_structure",
+      "entry_type": "structures",
+      "ref": "https://schemas.optimade.org/defs/v1.3/entrytypes/optimade/structures",
+      "description": "The structure whose elastic tensor is computed."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "relaxed_structure",
+      "entry_type": "structures",
+      "ref": "https://schemas.optimade.org/defs/v1.3/entrytypes/optimade/structures",
+      "description": "The relaxed structure that was strained (with relax = false, the input structure)."
+    },
+    {
+      "name": "elastic_tensor",
+      "entry_type": "records",
+      "ref": "https://schemas.httk.org/defs/v0.1/properties/mechanics/elastic_tensor",
+      "description": "The fitted elastic stiffness tensor in Voigt form, in GPa, in the Cartesian frame of the relaxed structure."
+    },
+    {
+      "name": "compliance_tensor",
+      "entry_type": "records",
+      "ref": "https://schemas.httk.org/defs/v0.1/properties/mechanics/compliance_tensor",
+      "description": "The elastic compliance tensor in Voigt form, in GPa^-1, in the Cartesian frame of the relaxed structure."
+    },
+    {
+      "name": "bulk_modulus_voigt",
+      "entry_type": "records",
+      "ref": "https://schemas.httk.org/defs/v0.1/properties/mechanics/bulk_modulus_voigt",
+      "description": "The Voigt bulk modulus, in GPa."
+    },
+    {
+      "name": "bulk_modulus_reuss",
+      "entry_type": "records",
+      "ref": "https://schemas.httk.org/defs/v0.1/properties/mechanics/bulk_modulus_reuss",
+      "description": "The Reuss bulk modulus, in GPa."
+    },
+    {
+      "name": "bulk_modulus_hill",
+      "entry_type": "records",
+      "ref": "https://schemas.httk.org/defs/v0.1/properties/mechanics/bulk_modulus_hill",
+      "description": "The Hill bulk modulus, in GPa."
+    },
+    {
+      "name": "shear_modulus_voigt",
+      "entry_type": "records",
+      "ref": "https://schemas.httk.org/defs/v0.1/properties/mechanics/shear_modulus_voigt",
+      "description": "The Voigt shear modulus, in GPa."
+    },
+    {
+      "name": "shear_modulus_reuss",
+      "entry_type": "records",
+      "ref": "https://schemas.httk.org/defs/v0.1/properties/mechanics/shear_modulus_reuss",
+      "description": "The Reuss shear modulus, in GPa."
+    },
+    {
+      "name": "shear_modulus_hill",
+      "entry_type": "records",
+      "ref": "https://schemas.httk.org/defs/v0.1/properties/mechanics/shear_modulus_hill",
+      "description": "The Hill shear modulus, in GPa."
+    },
+    {
+      "name": "universal_anisotropy_index",
+      "entry_type": "records",
+      "ref": "https://schemas.httk.org/defs/v0.1/properties/mechanics/universal_anisotropy_index",
+      "description": "The universal elastic anisotropy index."
+    },
+    {
+      "name": "elastic_result",
+      "entry_type": "files",
+      "description": "elastic.json: every fit input (the strains, stresses and settings of each deformation) and the fitted values."
+    }
+  ]
+}

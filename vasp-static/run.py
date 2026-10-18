@@ -14,7 +14,9 @@ Edit the template of a copied package to change the settings, or replace it in
 a single job with a payload file ``files/INCAR.static``. The template's own
 ``EDIFF`` and ``EDIFFG`` are kept; when absent they are derived from
 ``accuracy_per_atom``. The ``incar_tags`` parameter wins over the template and
-every derived value.
+every derived value. ``kpoint_grid = "n1 n2 n3"`` fixes the automatic mesh instead
+of deriving it from ``kpoint_density``, and ``excluded_remedies`` names ladder
+operations never to apply, so every child of a fan-out runs one numerical setting.
 
 The job inputs and parameters are documented in this repository's README. Nothing
 here imports anything but an installed *httk-workflow*, so this file and its
@@ -27,11 +29,13 @@ with ``vasp.template_missing``. The template's ``ICHARG = 1`` becomes
 read.
 """
 
+import re
 import shlex
 import shutil
 from pathlib import Path
 
 from httk.codes.vasp import (
+    REMEDY_OPERATIONS,
     VaspPreparationOptions,
     apply_vasp_remedy,
     clean_vasp_outputs,
@@ -44,6 +48,7 @@ from httk.codes.vasp import (
     run_vasp,
     update_incar,
     validate_vasp_workdir,
+    write_automatic_kpoints,
 )
 from httk.workflow import Attempt, Runner
 
@@ -54,6 +59,39 @@ KEEP_BETWEEN_RUNS = ("WAVECAR", "CHGCAR", "CHG")
 TEMPLATES = Path(__file__).resolve().parent / "templates"
 
 run = Runner("vasp.static")
+
+
+def kpoint_grid(value: object) -> tuple[int, ...] | None:
+    """Return the mesh *value* names (``"n1 n2 n3"`` or three integers), or ``None`` when it names none."""
+
+    words = value.split() if isinstance(value, str) else value
+    if not isinstance(words, list) or len(words) != 3 or not all(type(word) in (int, str) for word in words):
+        return None
+    try:
+        grid = tuple(int(word) for word in words)
+    except ValueError:
+        return None
+    return grid if min(grid) > 0 else None
+
+
+def excluded_remedies(value: object) -> set[str]:
+    """Return the ladder operation names *value* lists (space-separated, or a list).
+
+    :param value: The ``excluded_remedies`` parameter.
+    :return: The operation names.
+    :raises ValueError: If *value* lists anything but remedy operation names.
+    """
+
+    names = value.split() if isinstance(value, str) else value or []
+    if not isinstance(names, list) or not all(
+        isinstance(name, str) and (name in REMEDY_OPERATIONS or re.fullmatch(r"incar\.[A-Z][A-Z0-9_]*", name))
+        for name in names
+    ):
+        raise ValueError(
+            f"excluded_remedies must list remedy operations ({', '.join(REMEDY_OPERATIONS)} or incar.<TAG>), "
+            f"not {value!r}"
+        )
+    return set(names)
 
 
 @run.step
@@ -69,6 +107,20 @@ def prepare(a: Attempt) -> None:
             f"the starting structure {poscar.name} is not in this payload",
             details={"expected": str(poscar)},
         )
+        return
+    grid_parameter = a.parameter("kpoint_grid", "") or ""
+    grid = kpoint_grid(grid_parameter) if grid_parameter else ()
+    if grid is None:
+        a.fail(
+            "vasp.input_invalid",
+            f"kpoint_grid must be three positive integers, not {grid_parameter!r}",
+            details={"kpoint_grid": grid_parameter},
+        )
+        return
+    try:
+        excluded_remedies(a.parameter("excluded_remedies", ""))
+    except ValueError as exception:
+        a.fail("vasp.input_invalid", str(exception))
         return
     shutil.copyfile(poscar, a.workdir / "POSCAR")
     override = a.payload / "files" / "INCAR.static"
@@ -103,6 +155,9 @@ def prepare(a: Attempt) -> None:
         },
     )
     prepare_vasp_inputs(options, directory=a.workdir)
+    if grid:
+        write_automatic_kpoints(grid, a.workdir / "KPOINTS", centering=options.centering)
+        a.log.append("note", f"fixed the k-point mesh at {' '.join(map(str, grid))} ({options.centering})")
     # A single point of its own has no earlier run's charge density to read.
     if read_incar(incar).get("ICHARG") == "1":
         update_incar({"ICHARG": 2}, incar)
@@ -152,6 +207,7 @@ def run_step(a: Attempt) -> None:
             directory=a.workdir,
             history_path=history,
             policy=a.parameter("remedy_policy", "reviewed-v1"),
+            excluded_operations=excluded_remedies(a.parameter("excluded_remedies", "")),
         )
     except ValueError as exception:
         a.state.merge(state)

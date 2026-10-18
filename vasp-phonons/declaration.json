@@ -1,0 +1,73 @@
+{
+  "$id": "https://raw.githubusercontent.com/httk/workflows-vasp/refs/tags/wf-decl-v0.3.0/vasp-phonons/declaration.json",
+  "title": "VASP harmonic phonons",
+  "description": "This workflow declaration defines the httk vasp-phonons workflow: it computes the harmonic phonons of a crystal structure with VASP and phonopy, from an optional tight relaxation, its HPKOT primitive cell and one single point per displaced supercell, giving the force constants, the phonon band structure along the HPKOT path, the phonon density of states and the harmonic thermodynamics, with an optional non-analytical correction.\nIt defines the meaning of its roles: input role initial_structure is a structures entry containing the structure whose phonons are computed.\nOutput role relaxed_structure is a structures entry containing the tightly relaxed structure (only with relax = true); output role phonon_cell is a structures entry containing the HPKOT primitive cell whose dynamical matrix phonopy diagonalized, to which the phonon records refer; output role phonon_band_structure is a records entry containing the phonon frequencies of the phonon cell along the HPKOT q-point path, in THz; output role phonon_density_of_states is a records entry containing the phonon density of states of the phonon cell, in modes per THz per cell; output role vibrational_thermodynamics is a records entry containing the harmonic vibrational free energy, internal energy, entropy and heat capacity of the phonon cell versus temperature; output role zero_point_energy is a records entry containing the vibrational zero-point energy of the phonon cell, in eV; output role phonons_result is a files entry containing phonons.json, every input of the phonon analysis and its results; output role phonopy_disp is a files entry containing phonopy_disp.yaml, phonopy's unit cell, supercell matrix and displacements; and output role force_sets is a files entry containing FORCE_SETS, phonopy's displacements with the forces of each displaced supercell.",
+  "x-httk-definition": {
+    "kind": "workflow_declaration",
+    "format": "0.1",
+    "version": "0.3.0",
+    "name": "vasp-phonons",
+    "label": "vasp_phonons_workflow_httk"
+  },
+  "inputs": [
+    {
+      "name": "initial_structure",
+      "entry_type": "structures",
+      "ref": "https://schemas.optimade.org/defs/v1.3/entrytypes/optimade/structures",
+      "description": "The structure whose phonons are computed."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "relaxed_structure",
+      "entry_type": "structures",
+      "ref": "https://schemas.optimade.org/defs/v1.3/entrytypes/optimade/structures",
+      "description": "The tightly relaxed structure (only with relax = true)."
+    },
+    {
+      "name": "phonon_cell",
+      "entry_type": "structures",
+      "ref": "https://schemas.optimade.org/defs/v1.3/entrytypes/optimade/structures",
+      "description": "The HPKOT primitive cell whose dynamical matrix phonopy diagonalized; the phonon records refer to it."
+    },
+    {
+      "name": "phonon_band_structure",
+      "entry_type": "records",
+      "ref": "https://schemas.httk.org/defs/v0.1/properties/thermodynamics/phonon_band_structure",
+      "description": "The phonon frequencies of the phonon cell along the HPKOT q-point path, in THz."
+    },
+    {
+      "name": "phonon_density_of_states",
+      "entry_type": "records",
+      "ref": "https://schemas.httk.org/defs/v0.1/properties/thermodynamics/phonon_density_of_states",
+      "description": "The phonon density of states of the phonon cell, in modes per THz per cell."
+    },
+    {
+      "name": "vibrational_thermodynamics",
+      "entry_type": "records",
+      "ref": "https://schemas.httk.org/defs/v0.1/properties/thermodynamics/vibrational_thermodynamics",
+      "description": "The harmonic vibrational free energy, internal energy, entropy and heat capacity of the phonon cell versus temperature."
+    },
+    {
+      "name": "zero_point_energy",
+      "entry_type": "records",
+      "ref": "https://schemas.httk.org/defs/v0.1/properties/thermodynamics/zero_point_energy",
+      "description": "The vibrational zero-point energy of the phonon cell, in eV."
+    },
+    {
+      "name": "phonons_result",
+      "entry_type": "files",
+      "description": "phonons.json: every input of the phonon analysis (the forces and settings of each displacement, the supercell, the non-analytical correction) and its results."
+    },
+    {
+      "name": "phonopy_disp",
+      "entry_type": "files",
+      "description": "phonopy_disp.yaml: phonopy's unit cell, supercell matrix and displacements."
+    },
+    {
+      "name": "force_sets",
+      "entry_type": "files",
+      "description": "FORCE_SETS: phonopy's displacements with the forces of each displaced supercell."
+    }
+  ]
+}

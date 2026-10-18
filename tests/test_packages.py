@@ -29,6 +29,13 @@ _ENTRIES = {
     "vasp-relax-static-hse": "run.py",
     "vasp-general": "run.py",
     "vasp-band-structure": "run.py",
+    "vasp-relax-ions": "run.py",
+    "vasp-dos": "run.py",
+    "vasp-dielectric": "run.py",
+    "vasp-elastic": "run.py",
+    "vasp-eos": "run.py",
+    "vasp-phonons": "run.py",
+    "vasp-full-characterization": "run.py",
 }
 _DIRECTORIES = tuple(_ENTRIES)
 

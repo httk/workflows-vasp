@@ -1,0 +1,35 @@
+# The relax rounds of vasp-relax (its INCAR.relax) made tight with the tags of
+# atomate2's TightRelaxSetGenerator: EDIFF=1E-7, EDIFFG=-0.001, LREAL=.FALSE.
+# Its ENCUT=700 is not copied: ENCUT=600 stays. vasp.eos passes this file to
+# vasp.relax as files/INCAR.relax, so the pre-stages stay loose.
+LWAVE=.FALSE.
+LCHARG=.TRUE.
+ISTART=1
+ICHARG=1
+LORBIT=11
+LMAXMIX=6
+
+ISPIN=2
+
+ALGO=Normal
+PREC=Accurate
+ENCUT=600
+ENAUG=900
+LREAL=.FALSE.
+LASPH=.TRUE.
+ADDGRID=.FALSE.
+SYMPREC=1e-4
+
+ISMEAR=-5
+
+NELMIN=5
+EDIFF=1E-7
+EDIFFG=-0.001
+NSW=20
+MAXMIX=80
+NFREE=10
+
+NELM=40
+
+IBRION=1
+ISIF=3

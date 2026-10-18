@@ -6,9 +6,9 @@ backend-path = ["tools"]
 [project]
 name = "workflows-vasp"
 dynamic = ["version"]
-description = "Packaged VASP workflows (relax, relax in Bash, static, relax-then-static, coarse-mesh relax-then-static, HSE from PBE relax-then-static, general, band structure)"
+description = "Packaged VASP workflows (relax, relax in Bash, static, relax-then-static, coarse-mesh relax-then-static, HSE from PBE relax-then-static, general, band structure, fixed-cell ionic relax, density of states, dielectric response, elastic tensor, equation of state, phonons, full characterization)"
 requires-python = ">=3.12"
-dependencies = ["httk-workflow>=2.1.1", "httk-workflow-vasp>=0.1.0", "httk-atomistic>=2.1.2", "spglib>=2.0"]
+dependencies = ["httk-workflow>=2.1.1", "httk-workflow-vasp>=0.1.0", "httk-atomistic>=2.1.2", "httk-analyse>=2.1.0", "phonopy>=2.20", "spglib>=2.0"]
 
 [tool.httk.workflow-repository]
 repository = "git+https://github.com/httk/workflows-vasp"

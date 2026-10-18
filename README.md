@@ -15,6 +15,13 @@ They use the `httk.codes.vasp` helper library of an installed
 | `vasp-relax-static-hse` | `vasp.relax-static-hse` | An HSE relaxation from a PBE-relaxed start: calls `vasp.relax-static-coarse` with PBE (unless the structure is already PBE-relaxed), then with HSE from its result, seeded with its meshes, WAVECARs and optionally its Hessian. |
 | `vasp-general` | `vasp.general` | Any VASP calculation, run on input files the job supplies; only the POTCAR may be assembled. |
 | `vasp-band-structure` | `vasp.band-structure` | The electronic band structure of a structure along its HPKOT path: a self-consistent run, then a non-self-consistent line-mode run, from editable INCAR templates. |
+| `vasp-relax-ions` | `vasp.relax-ions` | One accurate ionic relaxation of a structure in its fixed cell (`ISIF = 2`) or at fixed volume (`ISIF = 4`), from an editable INCAR template, with the reviewed remedy ladder. |
+| `vasp-dos` | `vasp.dos` | The electronic density of states and band gaps of a structure: a self-consistent run (or a given charge density), then a non-self-consistent run on a dense uniform mesh. |
+| `vasp-dielectric` | `vasp.dielectric` | The static and high-frequency dielectric tensors, Born effective charges and piezoelectric tensor of an insulator by density-functional perturbation theory (one `IBRION = 8` run). |
+| `vasp-elastic` | `vasp.elastic` | The elastic tensor and moduli of a structure: an optional tight relaxation, then one `vasp.relax-ions` child per strained cell, fitted with *httk-analyse*. |
+| `vasp-eos` | `vasp.eos` | The Birch–Murnaghan equation of state of a structure: an optional tight relaxation, then one fixed-volume `vasp.relax-ions` child per volume (optionally a `vasp.static` each), fitted with *httk-analyse*. |
+| `vasp-phonons` | `vasp.phonons` | Harmonic phonons of a structure with phonopy: one `vasp.static` child per displaced supercell, then force constants, band structure, DOS and thermodynamics, with an optional non-analytical correction. |
+| `vasp-full-characterization` | `vasp.full-characterization` | Characterize one material with the other packages as child jobs: one tight relaxation, then band structure, density of states, elastic tensor, equation of state, dielectric response (insulators) and phonons, sharing every calculation. |
 
 Each package directory — its runner entry (`run.py`, or `run.sh` in
 `vasp-relax-bash`) with its `templates/` — is a starting point to copy and
@@ -23,7 +30,7 @@ parameters, staging inputs, building the preparation options, running VASP
 under supervision, planning and applying one remedy of the reviewed ladder, and
 publishing — directly on the primitives of `httk.codes.vasp`. The
 Python runners (`vasp-relax`, `vasp-static`, `vasp-relax-static`, `vasp-general`,
-`vasp-band-structure`) are
+`vasp-band-structure`, `vasp-relax-ions`) are
 independent of each other and deliberately repeat that code, templates
 included; `vasp-relax-bash` is the same staged relaxation, step for step, in
 Bash against the sibling Bash VASP API, with its own copies of the templates.
@@ -54,6 +61,10 @@ its package's `templates/` directory:
 | `static` | `INCAR.static` | A single point with the electronic settings of `INCAR.relax` and the ionic loop off, reading the final relax round's charge density when there is one. |
 | `scf` | `INCAR.scf` | `vasp-band-structure`'s self-consistent stage: `INCAR.static` from atomic charges (`ICHARG = 2`), writing the charge density (`LCHARG = .TRUE.`). |
 | `bands` | `INCAR.bands` | `vasp-band-structure`'s non-self-consistent band stage (`ICHARG = 11`, `ISMEAR = 0`), with the density-defining settings of `INCAR.scf`. |
+| `nscf` | `INCAR.nscf` | `vasp-dos`' non-self-consistent DOS stage: its `INCAR.scf` (a copy of `vasp-band-structure`'s) with `ICHARG = 11`, `LCHARG = .FALSE.`, `ISMEAR = -5`, `LORBIT = 11` and `NEDOS = 3001` (an httk choice), as atomate2's `NonSCFSetGenerator` in uniform mode. |
+| `relaxions` | `INCAR.relaxions` | `vasp-relax-ions`' fixed-cell relaxation (`ISIF = 2`, `IBRION = 2`, `NSW = 99`): the electronic settings of `INCAR.relax` made tight as atomate2's `ElasticRelaxMaker` (`EDIFF = 1E-7`, `EDIFFG = -0.001`, `LREAL = .FALSE.`), with `ISMEAR = 0`, `SIGMA = 0.05`, from atomic charges, writing no CHGCAR or WAVECAR; `NELM = 100` is an httk choice. |
+| `dielectric` | `INCAR.dielectric` | `vasp-dielectric`'s perturbation-theory run (`IBRION = 8`, `LEPSILON`, `LPEAD`, `NSW = 1`, `ISMEAR = -5`, `LREAL = .FALSE.`, `EDIFF = 1E-7`): `INCAR.static`'s electronic settings with atomate2's `lepsilon` choices; insulators only. |
+| `phonon` | `INCAR.phonon` | `vasp-phonons`' displaced-supercell single points: `INCAR.static` with atomate2 `PhononDisplacementMaker`'s `EDIFF = 1E-7`, `LREAL = .FALSE.` and `LCHARG = .FALSE.`, and the httk choices `ISMEAR = 0`, `SIGMA = 0.05`, `ADDGRID = .TRUE.`, from atomic charges. |
 
 `vasp-relax` and `vasp-relax-bash` run `preprerelax`, `prerelax` and then relax rounds: from `relax2`
 on, a round whose final energy is within ten times `EDIFFG` of the previous
@@ -326,6 +337,489 @@ evaluation has no cost estimate yet, so the driver's time guard does not
 cover it; all children travel with the job (an exchange eject returns the
 whole tree, WAVECARs included).
 
+## vasp-relax-ions
+
+`vasp-relax-ions` relaxes the atomic positions of a structure in its fixed
+cell, once and accurately, from `templates/INCAR.relaxions` (or a payload
+`files/INCAR.relaxions`); the template's `EDIFF` and `EDIFFG` are kept. The
+`isif` parameter (2, the default, or 4) sets `ISIF`: 4 also relaxes the cell
+shape at fixed volume (an httk choice where atomate2's constant-volume
+relaxations use 2). `ISIF`, `IBRION` and `NSW` in `incar_tags` fail
+`vasp.unsupported_incar_tag` before any VASP run. The cell is never scaled by a
+remedy (`scale_lattice` is excluded). A run that uses up its `NSW` ionic steps
+is not accepted, unlike in `vasp-relax`'s pre-stages: the ladder continues it
+from its CONTCAR (`contcar_to_poscar`), once, and a second such run fails
+`vasp.failed`. The outputs are `relaxed_structure` (the CONTCAR) and
+`total_energy`. It is the deformation leaf of the coming `vasp.elastic` and
+`vasp.eos`, which call it once per strained cell with one `kpoint_grid` and one
+`excluded_remedies` for all of them.
+
+## vasp-dos
+
+`vasp-dos` computes the electronic density of states and the band gaps of a
+structure that is already chosen (normally relaxed), in its own cell: no
+standardization, so `MAGMOM` and the other per-site tags keep their meaning.
+The `scf` stage (`INCAR.scf`, a copy of `vasp-band-structure`'s) runs on the
+automatic mesh of `kpoint_density` (default 20) and writes the CHGCAR; it is
+archived under `scf/`. The `nscf` stage (`INCAR.nscf`) then reads it with
+`ICHARG = 11` and `LCHARG = .FALSE.` on the denser automatic mesh of
+`dos_kpoint_density` (default 30), with the tetrahedron method
+(`ISMEAR = -5`), `LORBIT = 11` and `NEDOS = 3001`. Both meshes are
+Γ-centred by default here (`centering = Gamma`, for the tetrahedron method).
+`analyse` then reads the nscf EIGENVAL occupations and the DOSCAR Fermi energy
+and writes `band_edges.json`. Remedies, the shared remedy history, the
+`ICHARG = 11` enforcement and the density-tag guard are those of
+`vasp-band-structure`; `scale_lattice` and `contcar_to_poscar` are never
+applied, nor, in the nscf stage, an `ICHARG` change.
+
+A given density skips the scf stage: a payload `files/CHGCAR` with
+`files/scf-INCAR`, the INCAR it was computed with (and optionally
+`files/scf-OUTCAR`, kept as `scf/OUTCAR` for provenance), as
+`vasp.full-characterization` passes its band-structure child's. The nscf INCAR
+is checked against `scf-INCAR` in the density-defining tags before the run.
+No `total_energy` is collected then: that energy belongs to the job that
+computed the density.
+
+The band edges come from `httk.analyse.matsci.electronic.band_edges` with
+occupations per state on 0..1, `occupation_tolerance` (default `1e-3`) and the
+Fermi energy as the reference; a partially occupied state anywhere makes the
+material metallic, and both gaps are then recorded as 0. The tetrahedron method's Blöchl correction gives states at the Fermi level of a metal occupations slightly outside 0..1 (say 1.0012 or −0.0007): any beyond `occupation_tolerance` counts as partial (0.5), and `band_edges.json` records how many as `occupations_out_of_range`. With `ISPIN = 2` (the
+templates' default) the material's edges and indirect gap take both spin
+channels together (minimum CBM over both minus maximum VBM over both; band
+indices count the spin-up bands first), while the direct gap is the smallest
+per-channel direct gap (spin-conserving transitions); `band_edges.json` also
+holds each channel's own edges under `per_spin` (`null` for a channel without
+both occupied and empty states).
+
+The job fails by name with `vasp.unsupported_calculation` (`LHFCALC`,
+`METAGGA`, `LNONCOLLINEAR`, `LSORBIT`, as in `vasp-band-structure`),
+`vasp.invalid_dos_inputs` (`ICHARG` in `incar_tags`, or an nscf INCAR whose
+`ICHARG` is not 11), `vasp.input_missing` (also `files/CHGCAR` without
+`files/scf-INCAR`), `vasp.charge_density_missing`,
+`vasp.charge_density_incompatible`, `vasp.eigenvalues_without_occupations`
+(an EIGENVAL without occupation columns), `vasp.band_edges_failed` (unreadable
+EIGENVAL or DOSCAR, or no band edges) and `vasp.analysis_unavailable`
+(*httk-analyse* is not installed).
+
+The outputs are `total_energy` (from `scf/OUTCAR`, only when the scf ran in
+this job), the typed `electronic_density_of_states` (the total, spin-summed
+DOS) and `fermi_energy` (from the DOSCAR), `band_gap` and `direct_band_gap`
+(from `band_edges.json`, never re-analysed at collect), and three `files`
+entries: `dos` (DOSCAR), `eigenvalues` (EIGENVAL) and `band_edges`
+(`band_edges.json`). Collecting needs *httk-analyse*. With `publish_data` the
+stages are published under `scf/` and `nscf/` below `data_prefix` (default
+empty). Differences from atomate2's `NonSCFSetGenerator` uniform mode: the
+nscf mesh is `dos_kpoint_density` (an httk choice; `kpoint_density = 20` is
+already about atomate2's reciprocal density 100), `NEDOS = 3001` is an httk
+choice, and no projected DOS is collected (`LORBIT = 11` writes it into the
+DOSCAR and PROCAR, but only the total DOS is read).
+
+## vasp-dielectric
+
+One density-functional perturbation theory run (`IBRION = 8`, `LEPSILON`) of a
+fixed structure: the static and high-frequency dielectric tensors, the Born
+effective charges and the piezoelectric tensor. **Insulators only.** The
+template `INCAR.dielectric` has the electronic settings of `INCAR.static` plus
+atomate2's `StaticSetGenerator(lepsilon=True)` choices (`IBRION = 8`,
+`LEPSILON`, `LPEAD`, `NSW = 1`, `ISMEAR = -5`, `LREAL = .FALSE.`) and the *httk*
+choices `EDIFF = 1E-7`, atomic starting charges (`ICHARG = 2`), and no WAVECAR or CHGCAR.
+
+`incar_tags` may not set `IBRION`, `LEPSILON`, `NCORE` or `NPAR`
+(`vasp.unsupported_incar_tag`), and `parallel_tag` may not be `NPAR` or `NCORE`
+(`vasp.unsupported_parallel_tag`): VASP forbids both with `IBRION = 8`; use `KPAR`.
+A Cartesian POSCAR is refused (`vasp.input_unsupported`). Parameters: `kpoint_grid = "n1 n2 n3"` fixes the
+mesh, `excluded_remedies` names ladder operations never to apply, `centering`
+defaults to `Gamma` (the tetrahedron method wants it); the general parameters apply.
+The structure is never changed: `scale_lattice`, `contcar_to_poscar` and `incar.NPAR` are never applied. `rattle_amplitude` is not used, because the response refers to the structure as given.
+
+A completed run's OUTCAR is read into `dielectric.json` before publishing; a
+run without a dielectric tensor, or with a Born charge count that is not the atom
+count, fails `vasp.dielectric_missing`. The file holds `electronic` and `ionic`
+(3x3; `static` is their sum), `born_charges` (`[site][field direction][displacement direction]`, rows as VASP prints
+them, in the POSCAR's site order), `piezoelectric_electronic` and `piezoelectric_ionic`
+(3x6 in VASP's column order, named by `piezoelectric_column_order`: XX YY ZZ XY YZ ZX),
+`lattice` (3x3, Å, scale applied) and `positions` (direct coordinates) of the POSCAR VASP ran,
+`species`, `counts`, `poscar_sha256` and `energy`. Absent blocks are `null`.
+
+Outputs: `dielectric_cell`, `static_relative_permittivity` and
+`high_frequency_relative_permittivity` (isotropic means), `born_effective_charges`,
+`piezoelectric_tensor` (electronic plus ionic, reordered to Voigt xx yy zz yz xz xy),
+`total_energy`, and `dielectric_response` (`dielectric.json`). Collecting needs *httk-analyse*.
+
+## vasp-elastic
+
+`vasp-elastic` computes the elastic stiffness tensor of one structure and runs
+no VASP itself. It declares `[workflow.calls] relax = "vasp.relax"` and
+`relax_ions = "vasp.relax-ions"` and runs them as child jobs:
+
+- `start` validates the parameters (anything invalid fails
+  `vasp.input_invalid` before any child is called). With `relax` (default
+  true) it calls `vasp.relax` (child `relax`) with this package's
+  `templates/INCAR.relax` for its relax rounds: `vasp-relax`'s template with
+  atomate2 `TightRelaxSetGenerator`'s `EDIFF = 1E-7`, `EDIFFG = -0.001` and
+  `LREAL = .FALSE.` (a payload `files/INCAR.relax` replaces it); the pre-stages
+  stay loose. A failed relaxation fails `vasp.relax_failed`. With
+  `relax = false` the input structure is strained as given (for a structure
+  that is already relaxed tightly).
+- `deform` copies the relaxed structure to `relaxed/POSCAR` and writes one
+  strained cell per strain state `s` and magnitude `m`,
+  `deformations/d00/POSCAR`, `d01`, … (state-major): the Voigt strain
+  `e = m s` (`xx yy zz yz xz xy`, engineering shear strains, as httk-analyse's
+  fit takes them), the symmetric small strain `eps`, and the lattice rows
+  `a_i' = (I + eps) a_i`. Only the lattice rows are rewritten, so the
+  structure must be a VASP-5 POSCAR with scale 1 and `Direct` coordinates,
+  without `Selective dynamics` (otherwise `vasp.input_unsupported`). It calls
+  `vasp.relax-ions` with `isif = 2` once per cell and waits for all of them.
+- `fit` reads every child's stress (OUTCAR, tensile-positive GPa) and fits
+  the 21 stiffness components and a stress offset by least squares
+  (httk-analyse `fit_stress_strain(..., fit_offset=True)`).
+
+Parameters: `relax` (default true); `strain_states` (default the six unit
+states; a list of six-number lists, or a JSON string of one; together they
+must span all six components); `strain_magnitudes` (default
+`-0.01 -0.005 0.005 0.01`, atomate2's; at least two distinct nonzero
+numbers); `deformation_kpoint_density` (default 40, an httk choice denser
+than the relaxation's 20, as atomate2's `ElasticRelaxMaker` uses a denser
+mesh); `centering` (default `Gamma`); `publish_data` (default false: also put
+`elastic.json` and `relaxed/POSCAR` under `data/<data_prefix>/`). The shared
+parameters `incar_tags`, `accuracy_per_atom`, `maximum_remedies`,
+`pseudopotential_library`, `parallel_tag`, `parallel_value`, `timeout`,
+`vasp_command` and `remedy_policy` are passed to every child; the POTCAR
+travels as a file.
+
+Every deformation runs with one numerical setting: the mesh is computed once
+on `relaxed/POSCAR` and passed as `kpoint_grid` with `centering`, and the
+remedies that would change the numerics of one cell but not the others are
+excluded (`excluded_remedies = "bump_kpoints equal_kpoints centering
+incar.ISMEAR incar.SIGMA incar.LREAL scale_lattice"`). Before fitting, `fit`
+compares the children's KPOINTS and INCARs and fails
+`vasp.inconsistent_children` (the differing tags per label in the details)
+when the KPOINTS or any tag other than the electronic-path tags (`ALGO TIME
+AMIX BMIX AMIN ICHARG ISTART NELM NELMIN NBANDS NPAR NCORE KPAR ISYM
+SYMPREC EDIFF NEDOS`) differ. Other failures: `vasp.dependency_failed`
+(any deformation did not succeed; every failed label with its code in the
+details; no fit, rerun with `httk job continue`), `vasp.child_workdir_missing`,
+`vasp.stress_missing`, `vasp.analysis_unavailable` (no httk-analyse where the
+job runs) and `vasp.elastic_fit_failed`.
+
+`elastic.json` records the reference lattice, the mesh, each deformation's
+strain, and per child its label, job key and id, outcome, INCAR tags, KPOINTS,
+applied remedy operations and stress; then the fit: `stiffness` (6×6, GPa),
+`stress_offset`, `residuals`, `rmse`, `condition_number`, `strain_range`,
+`stable`, `stability_eigenvalues`, `compliance` (null when singular) and, for a
+stable tensor, the six Voigt/Reuss/Hill moduli and `universal_anisotropy`.
+`collect.py` reads only it and `relaxed/POSCAR` (it needs httk-analyse) and
+rebuilds the records from the stored stiffness, never re-fitting. The outputs
+are `relaxed_structure`, `elastic_tensor`, `compliance_tensor`,
+`bulk_modulus_voigt`/`_reuss`/`_hill`, `shear_modulus_voigt`/`_reuss`/`_hill`,
+`universal_anisotropy_index` (the roles and refs of `atomate2.elastic`) and
+`elastic_result` (`elastic.json`). An unstable tensor still succeeds, says so
+in the log and in `stable`, and collects only `elastic_tensor` and
+`compliance_tensor`; the moduli roles are unfulfilled.
+
+Differences from atomate2's `ElasticMaker`: the deformation set is not reduced
+by symmetry (the full set is correct, only more expensive; a follow-up on
+httk-atomistic's symmetry); `F = I + eps` is symmetric where atomate2's is
+upper-triangular, an O(eps²) difference the offset fit absorbs; the tight
+relaxation keeps `ENCUT = 600` where atomate2 sets 700; there is no
+`max_failed_deformations` (any failed deformation fails the job). The
+deformations run as concurrently as the manager has slots; a child's `maxtime`
+is capped at the parent attempt's, so this job declares none.
+
+## vasp-eos
+
+`vasp-eos` computes the third-order Birch–Murnaghan equation of state of one
+structure and runs no VASP itself. It declares `[workflow.calls] relax =
+"vasp.relax"`, `relax_ions = "vasp.relax-ions"` and `static = "vasp.static"`
+and runs them as child jobs:
+
+- `start` validates the parameters (anything invalid fails
+  `vasp.input_invalid` before any child is called). With `relax` (default
+  true) it calls `vasp.relax` (child `relax`) with this package's tight
+  `templates/INCAR.relax`, as `vasp-elastic` does (a payload
+  `files/INCAR.relax` replaces it; the pre-stages stay loose); a failed
+  relaxation fails `vasp.relax_failed`. With `relax = false` the input
+  structure is the reference as given.
+- `deform` copies the reference to `relaxed/POSCAR` and, for each of
+  `number_of_frames` linear strains `ε` evenly spread over `linear_strain`,
+  scales every lattice row by `1 + ε` (volume `V₀(1 + ε)³`) into
+  `volumes/v00/POSCAR`, `v01`, … Only the lattice rows are rewritten, so the
+  structure must be a VASP-5 POSCAR with scale 1 and `Direct` coordinates,
+  without `Selective dynamics` (otherwise `vasp.input_unsupported`). It calls
+  `vasp.relax-ions` with `isif = 4` once per volume (the atoms and the cell
+  shape relax at fixed volume) and waits for all of them.
+- `statics` (only with `static = true`) calls `vasp.static` (children `s00`,
+  `s01`, …) on each relaxed CONTCAR.
+- `fit` takes each volume from its `vasp.relax-ions` CONTCAR and each energy
+  (`energy(sigma->0)`) from the OUTCAR of the static, or with `static = false`
+  of the relaxation itself, and fits httk-analyse's `fit_birch_murnaghan`.
+
+Parameters: `relax` (default true); `linear_strain` (default `[-0.05, 0.05]`,
+two numbers or a space-separated string, below zero and above it, within
+±0.3, so the curve has an interior minimum); `number_of_frames` (default 6, at
+least 5); `static` (default false); `kpoint_density` (default 20) and
+`centering` (default `Gamma`) of the one mesh; `publish_data` (default false:
+also put `eos.json` and `relaxed/POSCAR` under `data/<data_prefix>/`). The
+shared parameters `incar_tags`, `accuracy_per_atom`, `maximum_remedies`,
+`pseudopotential_library`, `parallel_tag`, `parallel_value`, `timeout`,
+`vasp_command` and `remedy_policy` are passed to every child; the POTCAR
+travels as a file.
+
+Every volume and static runs with one numerical setting, by the rule of
+`vasp-elastic`: one mesh computed on `relaxed/POSCAR`, passed as
+`kpoint_grid` with `centering`, and the same `excluded_remedies`. `fit`
+compares the KPOINTS and INCARs of the children that provide the energies and
+fails `vasp.inconsistent_children` when the KPOINTS or any tag differ other
+than the electronic-path tags `ALGO TIME AMIX BMIX AMIN ICHARG ISTART NELM
+NELMIN NBANDS NPAR NCORE KPAR ISYM SYMPREC EDIFF NEDOS` (a remedy may tighten
+`EDIFF` or raise `NEDOS` in one child without changing its energy). Other
+failures:
+`vasp.dependency_failed` (any child did not succeed; every failed label with
+its code in the details; rerun with `httk job continue`),
+`vasp.child_workdir_missing`, `vasp.energy_missing`,
+`vasp.analysis_unavailable` and `vasp.eos_fit_failed` (for instance no
+interior minimum; the data stay in `eos.json`).
+
+`eos.json` records the plan (`strains`, `reference_volume`, `kpoint_grid`,
+`centering`, `excluded_remedies`), per child its label, job key and id,
+outcome, INCAR tags, KPOINTS and applied remedy operations, per volume its
+strain, volume and energy, `energy_source` (`relax_ions` or `static`), and
+every field of the fit: `equilibrium_volume` (Å³), `equilibrium_energy` (eV),
+`bulk_modulus` (GPa), `bulk_modulus_derivative`, `volumes`, `energies`,
+`residuals`, `rmse` and `condition_number`. `collect.py` reads only it and
+`relaxed/POSCAR` (it needs httk-analyse) and rebuilds the fit from the stored
+values, never re-fitting. The outputs are `relaxed_structure`,
+`equilibrium_volume`, `equilibrium_energy`, `bulk_modulus`,
+`bulk_modulus_pressure_derivative` and `eos_result` (`eos.json`); the energy
+RMSE is only in the JSON.
+
+Differences from atomate2's `EosMaker`: the fixed-volume relaxations use
+`ISIF = 4` (an httk choice; atomate2 uses 2); `static` defaults to false, as
+in the generic `EosMaker` (`static_maker = None`; the MP variants set one);
+the tight relaxation keeps `ENCUT = 600` where atomate2 sets 700; the fit is
+always Birch–Murnaghan. The volumes run as concurrently as the manager has
+slots; a child's `maxtime` is capped at the parent attempt's, so this job
+declares none.
+
+## vasp-phonons
+
+`vasp-phonons` computes the harmonic phonons of one structure with phonopy and
+runs no VASP itself. It declares `[workflow.calls] relax = "vasp.relax"` and
+`static = "vasp.static"` and runs them as child jobs:
+
+- `start` validates the parameters (anything invalid fails
+  `vasp.input_invalid` before any child is called), refuses `NSW` and `IBRION`
+  in `incar_tags` (`vasp.unsupported_incar_tag`) and the cell-dependent
+  `MAGMOM`, `NELECT`, `NUPDOWN`, `NG[XYZ]`, `NG[XYZ]F` or a POSCAR comment's
+  `[MAGMOM=...]` (`vasp.cell_dependent_tag_unsupported`: magnetic phonons are
+  out of scope for now). With `relax` (default true) it calls the tight
+  `vasp.relax` exactly as `vasp-elastic` does; with `relax = false` the input
+  structure is taken as relaxed.
+- `displace` copies the relaxed structure to `relaxed/POSCAR`. With
+  `standardize` (default true) the phonon unit cell `unitcell/POSCAR` is its
+  HPKOT primitive cell from `httk.atomistic.band_path`, in the input's species
+  order (`vasp.input_mismatch` otherwise), as in `vasp-band-structure`; with
+  `standardize = false` the given cell is used as it is (so a `dielectric.json`
+  of that cell still matches), and `band_path`'s cell `L_path` must be another
+  basis of the same lattice in the same frame: `T = L_path L⁻¹` (rows as
+  vectors) integer within 1e-6 with `|det T| = 1`, else `vasp.input_invalid`
+  (pass `standardize = true`). The unit cell's handedness is normalized once,
+  and `unitcell/band_path.json` holds the q-point path in that very cell's
+  reciprocal basis, `q = q_path T⁻ᵀ`, with `T` as `basis_change` (the
+  identity, or its negation after the handedness normalization, when
+  standardized). The supercell is diagonal, `n_i = ceil(min_length / w_i)`
+  with `w_i` the cell's width perpendicular to the other two vectors; more
+  than `max_atoms` atoms fail `vasp.supercell_too_large` (the multiples and the
+  atoms in the details). phonopy (`primitive_matrix = "P"`: the unit cell is
+  the cell diagonalized) writes `phonopy_disp.yaml` and the displaced
+  supercells `displacements/000/POSCAR`, … (`vasp.input_mismatch` if one does
+  not list the unit cell's species line). One mesh is computed on the
+  undisplaced `supercell/POSCAR`, and `vasp.static` runs once per displacement
+  (children `p000`, `p001`, …) with `templates/INCAR.phonon` as its
+  `INCAR.static`, that mesh as `kpoint_grid` with `centering`, and the
+  `excluded_remedies` of `vasp-elastic`.
+- `analyse` reads every child's forces (the last OUTCAR frame), sets them on
+  phonopy's displacement dataset from `phonopy_disp.yaml`, writes `FORCE_SETS`
+  and produces the force constants, then runs the mesh, the total DOS, the
+  band structure and httk-analyse's `harmonic_from_phonopy` thermodynamics.
+
+The non-analytical correction: a payload `files/dielectric.json` (as
+`vasp-dielectric` writes it) is checked in `displace`, before any child: it
+must have Born charges and `electronic`, the unit cell's `species` and
+`counts`, and its `lattice` and `positions` (modulo 1) within 1e-5 Å and 1e-5
+of the unit cell's, else `vasp.dielectric_mismatch`. It is then copied to
+`unitcell/dielectric.json`, and phonopy gets `nac_params = {"born",
+"dielectric": electronic, "factor": 14.39965}` (Born rows as VASP prints them,
+the field direction, as phonopy reads them; the factor is e²/(4πε₀) in eV Å,
+which phonopy 4.8 requires). Since Born charges and ε∞ must come from the
+same cell and site order, a dielectric run on the cell `vasp-phonons`
+standardizes to is the reliable source; `vasp.full-characterization` passes
+its own HPKOT cell with `standardize = false`.
+
+Parameters: `relax` (default true); `standardize` (default true);
+`min_length` (default 20.0 Å, atomate2's); `max_atoms` (default 300);
+`displacement` (default 0.01 Å); `phonon_kpoint_density` (default 20) and
+`centering` (default `Gamma`) of the one supercell mesh; `mesh_length`
+(default 100.0, phonopy's length-based q mesh); `band_points` (default 51
+q-points per path segment); `temperatures` (default 0 to 1000 K in steps of
+10, a list or a space-separated string); `cutoff_frequency` (default 0.05 THz:
+modes below it in magnitude are omitted as zero modes); `imaginary` (`raise`,
+the default, or `omit`); `imaginary_tolerance` (default 0.05 THz: frequencies
+below its negative are reported as imaginary); `symmetry_tolerance` (default
+1e-3 Å); `publish_data` (default false: also put `phonons.json`,
+`relaxed/POSCAR`, `unitcell/POSCAR`, `phonopy_disp.yaml` and `FORCE_SETS` under
+`data/<data_prefix>/`). The shared parameters are passed to every child as in
+`vasp-elastic`; the POTCAR travels as a file.
+
+Units: frequencies in THz; the DOS in modes per THz per unit cell (it
+integrates to three times the unit cell's sites); the thermodynamics in eV and
+eV/K per unit cell, the zero-point energy in eV. The band structure's q-points
+are fractional coordinates of the unit cell's reciprocal basis, `band_points`
+per segment with the HPKOT labels at both ends of each segment, and its
+frequencies are sorted at each q-point (`frequencies[mode][q]`, as
+`atomate2.phonons`' collect stores them).
+
+Imaginary modes: the count of mesh frequencies below `-imaginary_tolerance`
+and the lowest frequency are always in `phonons.json` and the log. With
+`imaginary = "raise"` any negative frequency beyond the zero-mode cutoff
+leaves the thermodynamics out (`null`, with the reason, in `phonons.json`;
+the job still succeeds, and `vibrational_thermodynamics` and
+`zero_point_energy` are unfulfilled); `omit` computes them without those
+modes.
+
+`phonons.json` records the plan (the validated parameters, the unit cell, the
+supercell matrix and atoms, each displacement's atom and vector, the mesh,
+`excluded_remedies`), per child its label, job key and id, outcome, INCAR
+tags, KPOINTS, applied remedies and forces, and the results: `nac`, `mesh`,
+`imaginary_modes`, every field of httk-analyse's `HarmonicThermodynamics`,
+`dos` and `band_structure`. `collect.py` reads only it, `unitcell/POSCAR` and
+`relaxed/POSCAR` (it needs httk-analyse) and never recomputes. The outputs
+are `relaxed_structure` (only with `relax`), `phonon_cell`,
+`phonon_band_structure`, `phonon_density_of_states`,
+`vibrational_thermodynamics` and `zero_point_energy` (the roles and refs of
+`atomate2.phonons`), and the files `phonons_result` (`phonons.json`),
+`phonopy_disp` and `force_sets`. Failures besides the above:
+`vasp.relax_failed`, `vasp.band_path_failed`, `vasp.dependency_failed`,
+`vasp.child_workdir_missing`, `vasp.inconsistent_children` (as in
+`vasp-elastic`, but `EDIFF` and `NEDOS`, which the `scale_ediff` and
+`incar.NEDOS` remedies change, may also differ), `vasp.forces_missing` (no forces on every supercell atom)
+and `vasp.analysis_unavailable` (no phonopy or httk-analyse where the job
+runs).
+
+Differences from atomate2's `PhononMaker`: the supercell is diagonal by
+perpendicular width (atomate2 searches cubic-like non-diagonal supercells, a
+follow-up here); the unit cell is always the HPKOT cell and the path
+`httk.atomistic.band_path`'s, not phonopy's seekpath; Born charges come from a
+given `dielectric.json` rather than a dielectric run of its own; the
+displacement runs keep `ENCUT = 600` where atomate2 sets 700, and add
+`ISMEAR = 0`, `SIGMA = 0.05` and `ADDGRID = .TRUE.`; no static energy run. The
+displacements run as concurrently as the manager has slots; a child's
+`maxtime` is capped at the parent attempt's, so this job declares none.
+
+## vasp-full-characterization
+
+`vasp-full-characterization` characterizes one material with the other
+packages of this repository as child jobs, in parallel where their
+dependencies allow, and runs no VASP itself. It declares `[workflow.calls]
+relax = "vasp.relax"`, `band_structure = "vasp.band-structure"`, `dos =
+"vasp.dos"`, `elastic = "vasp.elastic"`, `eos = "vasp.eos"`, `dielectric =
+"vasp.dielectric"` and `phonons = "vasp.phonons"`:
+
+```
+start ── call relax ──► plan ── standardize, decide insulator or metal, call band_structure,
+         (tight)                elastic, eos, and dielectric (insulator) or phonons (metal) ──► progress
+progress ── whenever a child ends: once band_structure has ended, call dos on its density;
+            once dielectric has ended, call phonons with its Born charges; when none is live, finish
+```
+
+- `start` validates the parameters (`vasp.input_invalid`) and refuses the
+  cell-dependent `MAGMOM`, `NELECT`, `NUPDOWN`, `NG[XYZ]`, `NG[XYZ]F` in
+  `incar_tags` or any `<label>_parameters.incar_tags`, or a POSCAR comment's
+  `[MAGMOM=...]` (`vasp.cell_dependent_tag_unsupported`), before any child.
+  It calls `vasp.relax` (child `relax`) with this package's tight
+  `templates/INCAR.relax`, as `vasp-elastic` does; a failed relaxation fails
+  `vasp.relax_failed`.
+- `plan` copies the relaxed CONTCAR to `relaxed/POSCAR` and, with
+  `standardize` (default true), writes its HPKOT primitive cell to
+  `standardized/POSCAR` exactly as `vasp-band-structure` builds it (within
+  `symmetry_tolerance`, default 1e-3 Å; `vasp.band_path_failed`,
+  `vasp.input_mismatch`); with `standardize = false` the relaxed structure is
+  copied (phonons then needs it to be its own HPKOT cell). Every property child
+  starts from that cell, with the POTCAR as a file.
+- `progress` keeps the ended children and rejoins the live ones until none is
+  live, then writes `characterization.json` and finishes.
+
+No calculation runs twice. The tight relaxation is the only one: `elastic`,
+`eos` and `phonons` get `relax = false` (and phonons `standardize = false`).
+`dos` gets the band-structure child's HPKOT `POSCAR`, `POTCAR` and `CHGCAR`
+with its `scf/INCAR` and `scf/OUTCAR` as `files/scf-INCAR` and
+`files/scf-OUTCAR`, so it runs only its nscf stage and the band-structure scf
+is the only self-consistent run on the cell (if band structure fails, dos runs
+its own scf; a note says so). `phonons` gets the dielectric child's
+`dielectric.json` for the non-analytical correction, computed on the very cell
+phonons runs on (without it, if dielectric fails: a note says so, and the job
+cannot succeed, see below). `characterization.json` records `phonons_nac` among its decisions.
+
+The insulator decision is taken from the relaxation, as atomate2's parent
+takes it: the band edges (httk-analyse's `band_edges`, both spin channels
+stacked) of the occupations in the final relax round's `EIGENVAL`. That round
+runs with the tetrahedron method (`ISMEAR = -5`), whose Blöchl-corrected
+occupations at the Fermi level of a metal can lie slightly outside [0, 1]: an
+occupation outside [−1e-3, 1 + 1e-3] counts as 0.5, a partial one
+(`occupations_out_of_range` records how many). An insulator has no partial occupation and an indirect gap above
+`band_gap_tolerance` (default 0.1 eV, an httk choice; atomate2 uses its
+`BANDGAP_TOL`). Only an insulator gets a dielectric child. No readable
+EIGENVAL with occupations fails `vasp.band_gap_unknown`: nothing is guessed.
+The dos child's gap is recorded too, with a note when it disagrees.
+
+Parameters: `parts` (default `"band_structure dos elastic eos dielectric
+phonons"`, any subset, space-separated or a list; an unknown name is
+`vasp.input_invalid`; dos without band_structure runs its own scf);
+`standardize`; `symmetry_tolerance`; `band_gap_tolerance`;
+`<label>_parameters` (`relax_parameters`, `band_structure_parameters`,
+`dos_parameters`, `elastic_parameters`, `eos_parameters`,
+`dielectric_parameters`, `phonons_parameters`), dictionaries of job parameters
+for that child, applied over the shared parameters (a member replaces the
+shared one whole), with this job's own structural settings winning over them;
+`poscar` and `potcar`. The shared parameters `incar_tags`, `accuracy_per_atom`,
+`maximum_remedies`, `pseudopotential_library`, `parallel_tag`,
+`parallel_value`, `timeout`, `vasp_command` and `remedy_policy` reach every
+child. The fan-out children compute their own meshes; dos reads the density
+only when both children ran with the same density-defining tags.
+
+The job yields `relaxed_structure`, `standardized_structure` and
+`characterization` (`characterization.json`: each child's job id, key, outcome
+and failure, and the decisions and notes); all three are also in its data.
+Every property is collected on the child runs, each under its own package and
+declaration, with parent → child run edges: band structure
+(`band_structure_cell`, `total_energy`, `band_eigenvalues`, `band_path`), dos
+(`band_gap`, `direct_band_gap`, `fermi_energy`,
+`electronic_density_of_states`, …), elastic (`elastic_tensor` and the moduli),
+eos (`bulk_modulus`, `equilibrium_volume`, …), dielectric
+(`static_relative_permittivity`, `high_frequency_relative_permittivity`,
+`born_effective_charges`, …), phonons (`phonon_band_structure`,
+`zero_point_energy`, …) and the relaxation (`relaxed_structure`,
+`total_energy`). The job succeeds when every child it called succeeded, and
+otherwise fails `vasp.characterization_incomplete` naming the failed ones
+(their failures in the details); succeeded children are collected either way.
+An insulator whose phonons ran without `dielectric.json` (dielectric in
+`parts` but failed) also fails `vasp.characterization_incomplete`, listing
+`phonons (without the non-analytical correction: dielectric did not succeed)`,
+even after `httk job continue` repairs the dielectric. The remedy: run
+`vasp.phonons` with `relax = false` and `standardize = false` on the job's
+`standardized/POSCAR`, with the dielectric child's `dielectric.json` as
+`files/dielectric.json`.
+Magnetic materials are out of scope for now. The job declares no `maxtime`,
+which would cap every child's.
+
+The easiest launch on a daemon-run workspace installs every package of a tag,
+with calls between them bound to the same commit:
+
+```console
+httk workflow install --workspace main 'git+https://github.com/httk/workflows-vasp@<tag>'
+httk job new --workspace main --workflow vasp.full-characterization --input-from structure Si.cif
+```
+
 ## vasp-general
 
 `vasp-general` runs any VASP calculation: the job supplies every input file
@@ -455,6 +949,21 @@ strings, so the Bash runner and the Python runners read one contract.
   or `KPAR`, and its value.
 * `incar_tags` (default empty) — explicit INCAR tags for every stage. They win
   over the templates and every derived value.
+* `kpoint_grid` (default empty, `vasp-static` and `vasp-relax-ions` only) — a
+  fixed automatic mesh `"n1 n2 n3"` (or a list of three integers), written with
+  the job's `centering` instead of the mesh of `kpoint_density`, so every child
+  of a fan-out runs on one mesh. Anything but three positive integers fails
+  `vasp.input_invalid`.
+* `excluded_remedies` (default empty, `vasp-static` and `vasp-relax-ions` only)
+  — ladder operations never to apply, space-separated (for example
+  `"bump_kpoints equal_kpoints centering incar.ISMEAR incar.LREAL"`); the ladder
+  goes on to its next rung instead. Each must be an operation name
+  (`bump_bands bump_kpoints centering contcar_to_poscar equal_kpoints scale_ediff
+  scale_lattice` or `incar.<TAG>`), or the job fails `vasp.input_invalid`; names
+  are not checked against the ladder, so one it never uses excludes nothing.
+* `isif` (default `2`, `vasp-relax-ions` only) — `2` relaxes the positions in
+  the fixed cell, `4` also the cell shape at fixed volume; anything else fails
+  `vasp.input_invalid`.
 * `timeout` (default `86400`) — seconds one VASP execution may take before its
   process group is terminated.
 * `maximum_remedies` (default `8`, and `0` in `vasp-general`) — how many
@@ -466,13 +975,21 @@ strings, so the Bash runner and the Python runners read one contract.
   instead of editing a runner.
 * `rattle_amplitude` (default `0.0`) — when positive, the POSCAR is rattled by
   this amplitude after every applied remedy, with a seed derived from the
-  attempt, so two retries never repeat one structure. `vasp-band-structure`
-  does not use it: its structure is the HPKOT cell its k-points refer to.
+  attempt, so two retries never repeat one structure. `vasp-band-structure`,
+  `vasp-dos` and `vasp-dielectric` do not use it, and the composites
+  (`vasp-elastic`, `vasp-eos`, `vasp-phonons`, `vasp-full-characterization`) do not
+  forward it to their children: their structure is the one their results refer to.
 * `band_divisions` (default `40`, `vasp-band-structure` only) — k-points per
   segment of the line-mode band path.
 * `symmetry_tolerance` (default `1e-3`, in Å, `vasp-band-structure` only) —
   the tolerance the structure's symmetry is recognized within, also the
   precision its POSCAR is read with; recorded in `band_path.json`.
+* `dos_kpoint_density` (default `30.0`, `vasp-dos` only) — the k-point
+  density of the nscf stage's uniform mesh; `kpoint_density` is the scf
+  stage's.
+* `occupation_tolerance` (default `1e-3`, `vasp-dos` only) — occupations
+  within this of 0 or 1 count as empty or full; any other is partial, making
+  the material metallic.
 * `publish_data` (default `false`) — when `true`, `publish` also copies the
   `collect` files into the job's `data/` directory; by default outputs stay in
   the workdir only.

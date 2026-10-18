@@ -1,0 +1,33 @@
+# One displaced supercell of vasp.phonons: vasp-static's INCAR.static with the
+# force settings of atomate2's PhononDisplacementMaker (EDIFF=1E-7,
+# LREAL=.FALSE., LCHARG=.FALSE.; its ENCUT=700 is not copied, 600 stays) and
+# the httk choices ISMEAR=0, SIGMA=0.05 (Gaussian smearing gives forces for
+# metals too), ADDGRID=.TRUE. (smoother forces) and LWAVE=.FALSE.
+# A single point from atomic charges.
+LWAVE=.FALSE.
+LCHARG=.FALSE.
+ISTART=0
+ICHARG=2
+LORBIT=11
+LMAXMIX=6
+
+ISPIN=2
+
+ALGO=Normal
+PREC=Accurate
+ENCUT=600
+ENAUG=900
+LREAL=.FALSE.
+LASPH=.TRUE.
+ADDGRID=.TRUE.
+SYMPREC=1e-4
+
+ISMEAR=0
+SIGMA=0.05
+
+NELMIN=5
+NELM=60
+EDIFF=1E-7
+
+NSW=0
+IBRION=-1

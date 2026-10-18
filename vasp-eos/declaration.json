@@ -1,0 +1,57 @@
+{
+  "$id": "https://raw.githubusercontent.com/httk/workflows-vasp/refs/tags/wf-decl-v0.3.0/vasp-eos/declaration.json",
+  "title": "VASP Birch–Murnaghan equation of state",
+  "description": "This workflow declaration defines the httk vasp-eos workflow: it optionally relaxes a crystal structure tightly with VASP, relaxes the atoms and the cell shape at a series of fixed volumes around the relaxed one, optionally evaluates each relaxed cell with a single-point calculation, and fits a third-order Birch–Murnaghan equation of state to the volumes and energies.\nIt defines the meaning of its roles: input role initial_structure is a structures entry containing the structure whose equation of state is computed.\nOutput role relaxed_structure is a structures entry containing the relaxed structure whose volume was varied, output role equilibrium_volume is a records entry containing the volume at the minimum of the fitted equation of state, output role equilibrium_energy is a records entry containing the energy at that minimum, output role bulk_modulus is a records entry containing the bulk modulus at the equilibrium volume, output role bulk_modulus_pressure_derivative is a records entry containing the pressure derivative of the bulk modulus at the equilibrium volume, and output role eos_result is a files entry containing eos.json, the settings and outcome of every calculation, the fitted volumes and energies, and the fitted values.",
+  "x-httk-definition": {
+    "kind": "workflow_declaration",
+    "format": "0.1",
+    "version": "0.3.0",
+    "name": "vasp-eos",
+    "label": "vasp_eos_workflow_httk"
+  },
+  "inputs": [
+    {
+      "name": "initial_structure",
+      "entry_type": "structures",
+      "ref": "https://schemas.optimade.org/defs/v1.3/entrytypes/optimade/structures",
+      "description": "The structure whose equation of state is computed."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "relaxed_structure",
+      "entry_type": "structures",
+      "ref": "https://schemas.optimade.org/defs/v1.3/entrytypes/optimade/structures",
+      "description": "The relaxed structure whose volume was varied."
+    },
+    {
+      "name": "equilibrium_volume",
+      "entry_type": "records",
+      "ref": "https://schemas.httk.org/defs/v0.1/properties/mechanics/equilibrium_volume",
+      "description": "The volume at the minimum of the fitted Birch–Murnaghan equation of state."
+    },
+    {
+      "name": "equilibrium_energy",
+      "entry_type": "records",
+      "ref": "https://schemas.httk.org/defs/v0.1/properties/mechanics/equilibrium_energy",
+      "description": "The energy at the minimum of the fitted Birch–Murnaghan equation of state."
+    },
+    {
+      "name": "bulk_modulus",
+      "entry_type": "records",
+      "ref": "https://schemas.httk.org/defs/v0.1/properties/mechanics/bulk_modulus",
+      "description": "The bulk modulus at the equilibrium volume of the fitted Birch–Murnaghan equation of state."
+    },
+    {
+      "name": "bulk_modulus_pressure_derivative",
+      "entry_type": "records",
+      "ref": "https://schemas.httk.org/defs/v0.1/properties/mechanics/bulk_modulus_pressure_derivative",
+      "description": "The pressure derivative of the bulk modulus at the equilibrium volume of the fitted Birch–Murnaghan equation of state."
+    },
+    {
+      "name": "eos_result",
+      "entry_type": "files",
+      "description": "eos.json: every child's settings and outcome, the volumes and energies fitted, and the fitted values with residuals, RMSE and condition number."
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+# The non-self-consistent DOS stage: ICHARG=11 reads the scf stage's CHGCAR and
+# keeps it fixed while the eigenvalues are computed on a dense uniform mesh (the
+# automatic mesh of dos_kpoint_density), as atomate2's NonSCFSetGenerator in
+# uniform mode: INCAR.scf with ICHARG=11, LCHARG=.FALSE. (the scf density must
+# not be overwritten), the tetrahedron method (ISMEAR=-5) and LORBIT=11.
+# NEDOS=3001 is an httk choice. The density-defining tags (PREC, ENCUT, ENAUG,
+# ISPIN, LMAXMIX, LASPH, ...) must equal those of the scf run, or the job fails
+# with vasp.charge_density_incompatible.
+# EDIFF and EDIFFG are derived from the accuracy_per_atom parameter when not set here.
+LWAVE=.FALSE.
+LCHARG=.FALSE.
+ISTART=0
+ICHARG=11
+LORBIT=11
+NEDOS=3001
+LMAXMIX=6
+
+ISPIN=2
+
+ALGO=Normal
+PREC=Accurate
+ENCUT=600
+ENAUG=900
+LREAL=Auto
+LASPH=.TRUE.
+ADDGRID=.FALSE.
+SYMPREC=1e-4
+
+ISMEAR=-5
+
+NELMIN=5
+NELM=60
+
+NSW=0
+IBRION=-1

@@ -1,0 +1,33 @@
+# vasp-relax's INCAR.relax made tight with atomate2 TightRelaxSetGenerator's tags (EDIFF, EDIFFG, LREAL).
+# Its ENCUT = 700 is not copied: this template's 600 stays (a difference from atomate2).
+LWAVE=.FALSE.
+LCHARG=.TRUE.
+ISTART=1
+ICHARG=1
+LORBIT=11
+LMAXMIX=6
+
+ISPIN=2
+
+ALGO=Normal
+PREC=Accurate
+ENCUT=600
+ENAUG=900
+LREAL=.FALSE.
+LASPH=.TRUE.
+ADDGRID=.FALSE.
+SYMPREC=1e-4
+
+ISMEAR=-5
+
+NELMIN=5
+EDIFF=1E-7
+EDIFFG=-0.001
+NSW=20
+MAXMIX=80
+NFREE=10
+
+NELM=40
+
+IBRION=1
+ISIF=3
