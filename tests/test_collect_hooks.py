@@ -166,7 +166,7 @@ def test_the_band_structure_collect_hook_follows_its_runner_layout(
     assert outputs["total_energy"].value == pytest.approx(-27.09328752)
     assert len(outputs["band_structure_cell"].sites.reduced_coords) == 2
     for role, name, media_type in (
-        ("band_eigenvalues", "EIGENVAL", None),
+        ("band_eigenvalues", "EIGENVAL", "application/octet-stream"),
         ("band_path", "band_path.json", "application/json"),
     ):
         record = outputs[role]

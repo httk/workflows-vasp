@@ -219,7 +219,9 @@ def test_the_band_structure_runs_scf_then_bands_on_the_hpkot_cell(
     for role, name in (("band_eigenvalues", "EIGENVAL"), ("band_path", "band_path.json")):
         record = item.outputs[role]
         assert isinstance(record, FileRecord)
-        assert record.url == (where / name).resolve().relative_to(workspace.root.resolve()).as_posix()
+        # collect prefixes a workspace-relative URL with data/<workspace name>/ (unregistered: its directory's name).
+        relative = (where / name).resolve().relative_to(workspace.root.resolve()).as_posix()
+        assert record.url == f"data/workspace/{relative}"
         assert record.sha256 == sha256_file(where / name)
     assert item.outputs["band_path"].media_type == "application/json"
 

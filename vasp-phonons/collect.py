@@ -27,7 +27,7 @@ def _file(record, path: Path) -> FileRecord:
         path.name,
         size=path.stat().st_size,
         # Only the exact names: a compressed copy is not JSON or YAML.
-        media_type=_MEDIA_TYPES.get(path.name),
+        media_type=_MEDIA_TYPES.get(path.name, "application/octet-stream"),
         sha256=sha256_file(path),
     )
 

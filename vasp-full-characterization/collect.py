@@ -25,7 +25,7 @@ def collect(record):
             path.name,
             size=path.stat().st_size,
             # Only the exact name: a compressed copy is not JSON.
-            media_type="application/json" if path.name == "characterization.json" else None,
+            media_type="application/json" if path.name == "characterization.json" else "application/octet-stream",
             sha256=sha256_file(path),
         ),
     }

@@ -285,9 +285,9 @@ def test_the_einstein_model_gives_flat_bands_and_its_zero_point_energy(
     for row, expected in zip(phonons["unit_cell"]["lattice"], hpkot, strict=True):
         assert row == pytest.approx(expected, abs=1e-6)
     band_path = json.loads((payload / "run" / "unitcell" / "band_path.json").read_text(encoding="utf-8"))
-    # band_path's cell is the HPKOT basis: L_path = T L_unit.
-    cyclic = [[0, 0, 1], [1, 0, 0], [0, 1, 0]]
-    assert band_path["basis_change"] == (cyclic if case == "permuted" else [[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+    # band_path's cell is the HPKOT basis: L_path = T L_unit. band_path keeps an input that already is a standard
+    # primitive cell, and the cyclic permutation of the cubic HPKOT vectors is one (a symmetry of the cube).
+    assert band_path["basis_change"] == [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
 
     nu = _einstein("Si")
     # Flat bands at the Einstein frequency, on the path and on the mesh (phonopy diagonalizes in float64).
@@ -363,8 +363,7 @@ def _cartesian(point: list[object], lattice: list[list[float]]) -> numpy.ndarray
 
 
 # standardize = true: the input is standardized, and the dielectric document is of that cell. standardize = false:
-# the input is the cell the standardize path writes, whose own band_path cell is a different basis of its lattice
-# (band_path alternates between two zincblende settings), so the path is transformed into the given basis.
+# the input is the cell the standardize path writes, which band_path keeps (it is idempotent), so both are its basis.
 @pytest.mark.parametrize("standardize", (True, False))
 def test_born_charges_from_dielectric_json_split_lo_and_to_at_gamma(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, standardize: bool
@@ -394,8 +393,7 @@ def test_born_charges_from_dielectric_json_split_lo_and_to_at_gamma(
 
     # The path's X, in the unit cell's reciprocal basis, is band_path's X of its own cell, in Cartesian coordinates.
     band_path = json.loads((payload / "run" / "unitcell" / "band_path.json").read_text(encoding="utf-8"))
-    identity = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
-    assert (band_path["basis_change"] == identity) is standardize
+    assert band_path["basis_change"] == [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
     # band_path of the cell the job gave it: the input, standardized or not.
     given = payload / "run" / "relaxed" / "POSCAR"
     (tmp_path / "given.vasp").write_bytes(given.read_bytes())

@@ -664,7 +664,11 @@ def test_a_vasp_command_that_cannot_start_fails_by_name(tmp_path: Path, monkeypa
     assert _payload_of(workspace, job_id)[0] == "failed"
     failure = _failure(workspace, job_id)
     assert failure["code"] == "vasp.failed"
-    assert failure["message"].startswith("could not run VASP at all: ")
+    # run_vasp starts VASP through httk-workflow-vasp's launch wrapper, which reports the missing executable on
+    # stderr and exits nonzero: a process failure without a remedy, not an OSError in the runner.
+    assert failure["message"] == "VASP process_failure with no remaining remedy"
+    _kind, payload = _payload_of(workspace, job_id)
+    assert f"cannot execute {str(missing)!r}" in (payload / "run" / "vasp.err").read_text(encoding="utf-8")
 
 
 def test_a_job_whose_structure_is_not_in_its_payload_fails_by_name(
@@ -995,7 +999,11 @@ def test_vasp_cli_runs_and_collects_default_workdir_or_published_results(
         assert report["unfulfilled"] == []
         assert report["missing_collector"] is None
         if into:
-            assert len(report["stored"]["entries"]) == len(roles)
+            # The outputs and the staged structure, which collect records as the run's input: the
+            # main structure plus its exact as-written ``~file_`` alternative.
+            assert set(item.inputs) == {"initial_structure"}
+            assert report["run"]["edges"]["inputs"] == 1
+            assert len(report["stored"]["entries"]) == len(roles) + 2
             assert report["stored"]["run"]
         assert summary["format"] == "httk-workflow-collect-summary"
 

@@ -193,7 +193,7 @@ def test_the_dos_runs_scf_then_nscf_and_collects_the_gaps(
     for role in ("dos", "eigenvalues", "band_edges"):
         assert isinstance(item.outputs[role], FileRecord)
     assert item.outputs["band_edges"].media_type == "application/json"
-    assert item.outputs["dos"].media_type is None
+    assert item.outputs["dos"].media_type == "application/octet-stream"
 
 
 def test_a_spin_polarized_gap_takes_both_channels(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
