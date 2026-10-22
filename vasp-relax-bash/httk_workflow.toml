@@ -36,7 +36,9 @@ file = "collect.py"
 [workflow.postprocess.relaxation-report]
 file = "scripts/relaxation_report"
 description = "write a relaxation summary (text + JSON) into the job's postprocess directory"
+outputs = ["relaxation_report.json", "relaxation_report.txt"]
 
 [workflow.postprocess.relaxation-plot]
 file = "scripts/relaxation_plot"
 description = "plot ionic-step energies into the job's postprocess directory"
+outputs = ["*.svg"]
