@@ -29,7 +29,7 @@ pytest.importorskip("phonopy")
 pytest.importorskip("spglib")
 
 from httk.workflow import TaskManager, Workspace, _kernel, _store, collect
-from httk.workflow.introspection import resolve_job
+from httk.workflow.introspection import iter_jobs, resolve_job
 from httk.workflow.scaffold import new_job
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -284,9 +284,10 @@ def _jobs(workspace: Workspace) -> dict[str, tuple[Path, dict[str, Any]]]:
     """Every job of the workspace: job id -> (job directory, job.json)."""
 
     jobs = {}
-    for path in workspace.root.glob("jobs/*/*/job.json"):
-        document = json.loads(path.read_text(encoding="utf-8"))
-        jobs[document["id"]] = (path.parent, document)
+    # Spawned children nest under <parent placement>/<parent key>.children, so list jobs, not a fixed depth.
+    for ref in iter_jobs(workspace):
+        document = json.loads((ref.path / "job.json").read_text(encoding="utf-8"))
+        jobs[document["id"]] = (ref.path, document)
     return jobs
 
 
