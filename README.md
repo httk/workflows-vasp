@@ -85,8 +85,14 @@ included) may move to the end of the INCAR VASP runs with. An `EDIFF` and
 `EDIFFG` the template sets are kept, while absent ones are
 derived from `accuracy_per_atom` (`EDIFF = accuracy·atoms/margin` with a margin
 of 500 when the template's `NSW` is above 1 and 33 otherwise, and
-`EDIFFG = accuracy·atoms`). `MAGMOM` and `NBANDS` are derived when absent, and
-the KPOINTS grid comes from the stage's k-point density. Every remedy the job
+`EDIFFG = accuracy·atoms`). `MAGMOM` and `NBANDS` are derived when absent,
+unless `incar_tags` sets them to `null`, which leaves them to VASP's own
+defaults. A `null` `NBANDS` may still end up explicit: at launch the VASP
+launch wrapper writes VASP's default rounded to the band-group count when the
+launch has more than one band group and the rounded default stays within
+`2 × NELECT`, unless the run is one it leaves to VASP (DFPT, hybrid, GW-type,
+`IMAGES`) or the setting `vasp.nbands_rounding` is `off` (see
+*httk-workflow-vasp*'s helper details). The KPOINTS grid comes from the stage's k-point density. Every remedy the job
 has already applied is re-applied, so a remedy found necessary in one stage
 stays in force in the later ones, as in v1. Finally, a template's
 `ICHARG = 1` stays only when the workdir holds a non-empty CHGCAR from a run
@@ -96,10 +102,15 @@ So `relax1` starts from atomic charges, since `prerelax` ran at `PREC = Normal`
 and the default cutoff, while later relax rounds and the static stage reuse
 the density.
 
-There are three ways to change the settings:
+### Changing INCAR tags
+
+There are several ways to change individual INCAR settings:
 
 * `incar_tags` (a job parameter) — tags applied to every stage, winning over
-  the templates and every derived value.
+  the templates and every derived value. A `null` value removes the tag, the
+  template's line included, and keeps the runner from deriving one, so VASP
+  uses its own default: `httk job new ... --parameter 'incar_tags={"NBANDS": null, "MAGMOM": null}'`
+  runs with VASP's band count and moments.
 * `files/INCAR.<stage>` (a payload file of one job, e.g. `files/INCAR.relax`) —
   replaces that stage's template wholesale for that job.
 * Edit the templates of a copied package — the v1 way: copy the package
@@ -110,6 +121,16 @@ There are three ways to change the settings:
   ending in `#vasp-relax`, or `--workflow-dir`). `vasp-relax-bash` and `vasp-relax-static` carry their own
   copies of the `vasp-relax` (and `vasp-static`) templates; this repository's tests keep them
   identical, and a copied package is free to diverge.
+* In a copied Bash runner, `httk_vasp_set_tag TAG VALUE [INCAR]` and
+  `httk_vasp_unset_tag TAG [INCAR]` (VASP Bash API version 4) edit the INCAR
+  after `httk_vasp_prepare`; unsetting an absent tag is no error. In a copied
+  Python runner, `httk.codes.vasp.update_incar({"TAG": value}, "INCAR")` does
+  the same, and a `None` value removes the tag.
+
+*httk* v1 edited tags the same two ways: in the task template's INCAR, and with
+its Bash INCAR helpers inside the runner script. Here the template route is
+unchanged, the Bash helpers live on as `httk_vasp_set_tag`/`httk_vasp_unset_tag`,
+and `incar_tags` adds a per-job route that needs no copied package.
 
 ### Differences from httk v1
 
@@ -899,7 +920,8 @@ template when there is none):
 * `vasp.cell_dependent_tag_unsupported` — `MAGMOM`, `NELECT`, `NUPDOWN` or an
   absolute FFT grid (`NGX NGY NGZ NGXF NGYF NGZF`) is set, or the POSCAR
   comment has a `[MAGMOM=...]`: these are per site, per cell or sized for the
-  cell, and the HPKOT cell's sites and size differ from the input's.
+  cell, and the HPKOT cell's sites and size differ from the input's. A `null`
+  in `incar_tags` only removes the tag (VASP's default) and is allowed.
 * `vasp.band_path_failed` — the structure has no band path: site moments, an
   irrational metric, or spglib is missing (`pip install httk-atomistic[default]`).
 * `vasp.unsupported_calculation` — `LHFCALC`, `METAGGA`, `LNONCOLLINEAR` or

@@ -93,7 +93,8 @@ step_stage() {
     # The template's own EDIFF/EDIFFG are kept rather than derived; the job's tags
     # win over both. The job's incar_tags is a compact JSON object, and its members
     # come after the template's in the merged object, so they win: a JSON object
-    # with a repeated name takes its last value.
+    # with a repeated name takes its last value. That includes a null member, so a
+    # job's {"EDIFF": null} still removes the template's EDIFF (VASP's default).
     tags=$(httk_workflow_parameter incar_tags '{}')
     for tag in EDIFFG EDIFF; do
         if value=$(httk_vasp_get_tag "$tag"); then

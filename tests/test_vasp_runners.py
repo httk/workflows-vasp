@@ -27,6 +27,7 @@ comparing the entire job outcome rather than only the declared steps.
 """
 
 import json
+import re
 import runpy
 import shutil
 from pathlib import Path
@@ -593,7 +594,8 @@ def test_the_bash_runner_and_the_python_runner_publish_the_same_result(
             directory,
             fail_once=fail_once,
             fake=fake,
-            parameters={"kpoint_density": 15.0, "incar_tags": {"NELM": 40}},
+            # A null tag is VASP's default: it beats the template's EDIFF the runners merge in before it.
+            parameters={"kpoint_density": 15.0, "incar_tags": {"NELM": 40, "EDIFF": None}},
         )
         kind, payload = _payload_of(workspace, job_id)
         state = _job_state(payload)
@@ -626,6 +628,7 @@ def test_the_bash_runner_and_the_python_runner_publish_the_same_result(
     if label == "too-few-bands":
         assert observed["vasp-relax"]["ladder"]
     assert "NELM = 40" in observed["vasp-relax"]["inputs"][0]
+    assert not any(re.search(r"(?m)^\s*EDIFF\s*=", run) for run in observed["vasp-relax"]["runs"])
     assert len(observed["vasp-relax"]["runs"]) == {"plain": 4, "remedied": 5, "rounds": 6, "too-few-bands": 5}[label]
     assert observed["vasp-relax"] == observed["vasp-relax-bash"]
 

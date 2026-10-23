@@ -315,6 +315,16 @@ def test_a_cell_dependent_override_is_refused_before_any_run(
     assert _no_vasp_ran(payload)
 
 
+def test_a_null_magmom_is_vasps_default_and_not_a_cell_dependent_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace, job_id = _campaign(tmp_path / "null", monkeypatch, parameters={"incar_tags": {"MAGMOM": None}})
+
+    kind, payload = _payload_of(workspace, job_id)
+    assert kind == "succeeded"
+    assert all("MAGMOM" not in run["tags"] for run in _runs(payload / "run"))
+
+
 def test_a_hybrid_functional_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     workspace, job_id = _campaign(tmp_path / "hybrid", monkeypatch, parameters={"incar_tags": {"LHFCALC": ".TRUE."}})
 

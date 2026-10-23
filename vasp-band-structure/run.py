@@ -39,7 +39,8 @@ checks ``incar_tags`` and each stage's payload INCAR or template:
 ``MAGMOM``, ``NELECT``, ``NUPDOWN`` and the absolute FFT grids ``NG[XYZ]``,
 ``NG[XYZ]F`` (or the POSCAR comment's ``[MAGMOM=...]``) are refused with
 ``vasp.cell_dependent_tag_unsupported``, since the HPKOT cell's sites and size
-differ from the input's; any ``ICHARG`` in ``incar_tags``, a band INCAR's
+differ from the input's (a ``null`` in ``incar_tags``, which leaves the tag to
+VASP's default, is no such override); any ``ICHARG`` in ``incar_tags``, a band INCAR's
 ``ICHARG`` other than 11, or a ``band_divisions`` that is not an integer of at
 least 2 is ``vasp.invalid_band_inputs``; and a recognition failure is
 ``vasp.band_path_failed``. The stages check again what VASP is about to run:
@@ -154,7 +155,10 @@ def prepare(a: Attempt) -> None:
     # Checked here, before any VASP run, on every source of either stage's INCAR: the job's
     # incar_tags (applied to both stages) and each stage's payload override or template.
     explicit = {
-        str(tag).strip().upper(): str(value) for tag, value in dict(a.parameter("incar_tags", {}) or {}).items()
+        str(tag).strip().upper(): str(value)
+        for tag, value in dict(a.parameter("incar_tags", {}) or {}).items()
+        # A null tag is removed (VASP's default), which depends on no cell.
+        if value is not None
     }
     sources = {"incar_tags": explicit}
     for name in ("scf", "bands"):
@@ -323,7 +327,10 @@ def stage_bands(a: Attempt) -> None:
         return
     override = a.payload / "files" / "INCAR.bands"
     explicit = {
-        str(tag).strip().upper(): str(value) for tag, value in dict(a.parameter("incar_tags", {}) or {}).items()
+        str(tag).strip().upper(): str(value)
+        for tag, value in dict(a.parameter("incar_tags", {}) or {}).items()
+        # A null tag is removed (VASP's default), which depends on no cell.
+        if value is not None
     }
     for source, tags in (
         ("incar_tags", explicit),
