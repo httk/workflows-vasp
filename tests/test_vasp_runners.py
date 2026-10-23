@@ -974,7 +974,9 @@ def test_vasp_cli_runs_and_collects_default_workdir_or_published_results(
     roles = {"total_energy"} if directory == "vasp-static" else {"relaxed_structure", "total_energy"}
     energy = -11.5 if directory in ("vasp-static", "vasp-relax-static") else -10.5
     assert set(item.outputs) == roles
-    assert not item.unfulfilled
+    # The fake OUTCAR has no forces block, so vasp.static leaves its forces unfulfilled.
+    unfulfilled = ["cartesian_site_forces"] if directory == "vasp-static" else []
+    assert list(item.unfulfilled) == unfulfilled
     collected_energy = item.outputs["total_energy"]
     assert isinstance(collected_energy, DataRecord)
     assert collected_energy.value == pytest.approx(energy)
@@ -999,7 +1001,7 @@ def test_vasp_cli_runs_and_collects_default_workdir_or_published_results(
         report, summary = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
         assert report["job_key"] == key
         assert set(report["outputs"]) == roles
-        assert report["unfulfilled"] == []
+        assert report["unfulfilled"] == unfulfilled
         assert report["missing_collector"] is None
         if into:
             # The outputs and the staged structure, which collect records as the run's input: the

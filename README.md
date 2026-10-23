@@ -9,7 +9,7 @@ They use the `httk.codes.vasp` helper library of an installed
 | --- | --- | --- |
 | `vasp-relax` | `vasp.relax` | Relax the geometry of a structure in the staged, robust *httk* v1 way, from editable INCAR templates, with the reviewed remedy ladder (Python runner). |
 | `vasp-relax-bash` | `vasp.relax-bash` | The same staged relaxation, authored in Bash. |
-| `vasp-static` | `vasp.static` | One single-point total-energy calculation of a fixed structure, from an editable INCAR template. |
+| `vasp-static` | `vasp.static` | One single-point total-energy calculation of a fixed structure, from an editable INCAR template; also collects the forces on every site (`cartesian_site_forces`) when the run kept the staged geometry. |
 | `vasp-relax-static` | `vasp.relax-static` | The staged relaxation of `vasp-relax`, then a single point of the relaxed structure. |
 | `vasp-relax-static-coarse` | `vasp.relax-static-coarse` | A relaxation on a coarse k-point mesh driven by a BFGS optimizer in Python, VASP giving one single point per step, then one final-mesh static, correcting the coarse surface once by the measured offset. |
 | `vasp-relax-static-hse` | `vasp.relax-static-hse` | An HSE relaxation from a PBE-relaxed start: calls `vasp.relax-static-coarse` with PBE (unless the structure is already PBE-relaxed), then with HSE from its result, seeded with its meshes, WAVECARs and optionally its Hessian. |

@@ -1,11 +1,11 @@
 {
-  "$id": "https://raw.githubusercontent.com/httk/workflows-vasp/refs/tags/wf-decl-v0.1.0/vasp-static/declaration.json",
+  "$id": "https://raw.githubusercontent.com/httk/workflows-vasp/refs/tags/wf-decl-v0.5.0/vasp-static/declaration.json",
   "title": "VASP static calculation",
-  "description": "This workflow declaration defines the httk vasp-static workflow: it performs a single-point total-energy evaluation of a fixed structure with VASP.\nIt defines the meaning of its roles: input role initial_structure is a structures entry containing the structure to evaluate.\nOutput role total_energy is a records entry containing the total energy of the structure.",
+  "description": "This workflow declaration defines the httk vasp-static workflow: it performs a single-point total-energy evaluation of a fixed structure with VASP.\nIt defines the meaning of its roles: input role initial_structure is a structures entry containing the structure to evaluate.\nOutput role total_energy is a records entry containing the total energy of the structure.\nOutput role cartesian_site_forces is a records entry containing the forces on every site of the staged structure, in its site order; it is produced only when the calculation kept the staged geometry.",
   "x-httk-definition": {
     "kind": "workflow_declaration",
     "format": "0.1",
-    "version": "0.1.0",
+    "version": "0.5.0",
     "name": "vasp-static",
     "label": "vasp_static_workflow_httk"
   },
@@ -23,6 +23,12 @@
       "entry_type": "records",
       "ref": "https://schemas.httk.org/defs/v0.1/properties/core/total_energy",
       "description": "The total energy of the structure."
+    },
+    {
+      "name": "cartesian_site_forces",
+      "entry_type": "records",
+      "ref": "https://schemas.httk.org/defs/v0.1/properties/core/cartesian_site_forces",
+      "description": "The forces on every site of the staged structure, in POSCAR site order, in eV/Å; only when the calculation kept the staged geometry (one ionic configuration, no rattle remedy)."
     }
   ]
 }

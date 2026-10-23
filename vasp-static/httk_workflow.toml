@@ -1,7 +1,7 @@
 [workflow]
 name = "vasp.static"
 description = "one single-point calculation of one structure, from an editable INCAR template"
-declaration_uri = "https://raw.githubusercontent.com/httk/workflows-vasp/refs/tags/wf-decl-v0.1.0/vasp-static/declaration.json"
+declaration_uri = "https://raw.githubusercontent.com/httk/workflows-vasp/refs/tags/wf-decl-v0.5.0/vasp-static/declaration.json"
 declaration_file = "declaration.json"
 requires = ["httk-workflow>=2.1.1", "httk-workflow-vasp>=0.1.0", "httk-atomistic>=2.1.2"]
 settings = ["vasp.command", "vasp.pseudo_library"]
@@ -22,6 +22,13 @@ entry_type = "records"
 role = "total_energy"
 ref = "https://schemas.httk.org/defs/v0.1/properties/core/total_energy"
 description = "The total energy of the structure."
+product_of = "initial_structure"
+
+[workflow.outputs.cartesian_site_forces]
+entry_type = "records"
+role = "cartesian_site_forces"
+ref = "https://schemas.httk.org/defs/v0.1/properties/core/cartesian_site_forces"
+description = "The forces on every site of the staged structure, in POSCAR site order, in eV/Å; only when the calculation kept the staged geometry (one ionic configuration, no rattle remedy)."
 product_of = "initial_structure"
 
 [workflow.collect]
