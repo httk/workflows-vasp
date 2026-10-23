@@ -4,6 +4,7 @@ description = "relax on a coarse k-point mesh with a Python BFGS driving single 
 declaration_uri = "https://raw.githubusercontent.com/httk/workflows-vasp/refs/tags/wf-decl-v0.2.0/vasp-relax-static-coarse/declaration.json"
 declaration_file = "declaration.json"
 requires = ["httk-workflow>=2.1.1", "httk-workflow-vasp>=0.1.0", "httk-atomistic>=2.1.2"]
+settings = ["vasp.command", "vasp.pseudo_library"]
 
 [workflow.runner]
 entry = "run.py"

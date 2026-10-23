@@ -4,6 +4,7 @@ description = "relax one structure in v1's robust stages, from editable INCAR te
 declaration_uri = "https://raw.githubusercontent.com/httk/workflows-vasp/refs/tags/wf-decl-v0.1.0/vasp-relax/declaration.json"
 declaration_file = "declaration.json"
 requires = ["httk-workflow>=2.1.1", "httk-workflow-vasp>=0.1.0", "httk-atomistic>=2.1.2"]
+settings = ["vasp.command", "vasp.pseudo_library"]
 
 [workflow.runner]
 entry = "run.py"
