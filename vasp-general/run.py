@@ -3,8 +3,13 @@
 
 The job supplies every input file but the POTCAR — INCAR, POSCAR, and whatever
 else the calculation reads (KPOINTS, WAVECAR, CHGCAR, ...) — in its payload's
-``files/``, and this workflow runs VASP on them exactly as given: nothing is
-derived and INCAR and KPOINTS reach VASP byte for byte. The steps, spelled out
+``files/``, and this workflow runs VASP on them as given: nothing is derived,
+except that the VASP launch wrapper may write planned ``KPAR``/``NCORE`` and a
+rounded ``NBANDS`` into the INCAR (and logs them), unless the INCAR sets them
+(``KPAR``, ``NCORE`` or ``NPAR`` for the planned pair) or the settings
+``vasp.parallelization`` and ``vasp.nbands_rounding`` are ``off``. With both
+``off`` (or on one rank) the INCAR reaches VASP byte for byte, as KPOINTS always
+does. The steps, spelled out
 on the ``httk.codes.vasp`` primitives so that this file is a starting point to
 copy and edit: ``prepare`` copies every regular file directly under ``files/``
 into the workdir — except ``vasp-run-report.json`` and ``POTCAR.provenance.json``,

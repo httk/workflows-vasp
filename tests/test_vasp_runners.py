@@ -306,8 +306,8 @@ def test_the_packaged_relax_runner_runs_the_v1_stages_from_their_templates(
     # The job's incar_tags reach every stage, rewritten rather than duplicated.
     assert all(run["tags"]["ISYM"] == "0" for run in runs)
     assert runs[3]["INCAR"].count("ISYM") == 1
-    for tag in ("MAGMOM", "NBANDS"):
-        assert f"{tag} = " in runs[3]["INCAR"]
+    # MAGMOM and NBANDS are left to VASP's defaults: no POSCAR comment or incar_tags sets them.
+    assert all("MAGMOM" not in run["tags"] and "NBANDS" not in run["tags"] for run in runs)
     # The pre-stages run at prerelax_kpoint_density, the relax rounds at kpoint_density.
     assert (workdir / "stages" / "prerelax" / "KPOINTS").read_text(encoding="utf-8").splitlines()[3] == "6 6 6"
     assert (workdir / "KPOINTS").read_text(encoding="utf-8").splitlines()[2:4] == ["Monkhorst-Pack", "11 11 11"]
@@ -799,8 +799,8 @@ def test_the_general_runner_runs_the_supplied_inputs_as_given(tmp_path: Path, mo
     kind, payload = _payload_of(workspace, job_id)
     assert kind == "succeeded"
     workdir = payload / "run"
-    # Nothing was derived: VASP ran on the job's INCAR and KPOINTS byte for byte,
-    # next to every other file the job supplied.
+    # Nothing was derived, and on one rank the launch wrapper plans no KPAR/NCORE and rounds no NBANDS: VASP
+    # ran on the job's INCAR and KPOINTS byte for byte, next to every other file the job supplied.
     (run,) = _runs(workdir)
     assert run["INCAR"] == _GENERAL_INCAR
     assert (workdir / "INCAR").read_text(encoding="utf-8") == _GENERAL_INCAR

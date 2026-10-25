@@ -85,13 +85,16 @@ included) may move to the end of the INCAR VASP runs with. An `EDIFF` and
 `EDIFFG` the template sets are kept, while absent ones are
 derived from `accuracy_per_atom` (`EDIFF = accuracy·atoms/margin` with a margin
 of 500 when the template's `NSW` is above 1 and 33 otherwise, and
-`EDIFFG = accuracy·atoms`). `MAGMOM` and `NBANDS` are derived when absent,
-unless `incar_tags` sets them to `null`, which leaves them to VASP's own
-defaults. A `null` `NBANDS` may still end up explicit: at launch the VASP
-launch wrapper writes VASP's default rounded to the band-group count when the
-launch has more than one band group and the rounded default stays within
-`2 × NELECT`, unless the run is one it leaves to VASP (DFPT, hybrid, GW-type,
-`IMAGES`) or the setting `vasp.nbands_rounding` is `off` (see
+`EDIFFG = accuracy·atoms`). `MAGMOM` and `NBANDS` are left to VASP's
+defaults: one μB per ion, and VASP's band count. A POSCAR comment
+`[MAGMOM=...]` or an `incar_tags` value sets `MAGMOM` (e.g. a high-spin start
+`incar_tags={"MAGMOM": "2*5"}`), and an `incar_tags` `NBANDS` sets the band
+count. The templates keep `ISPIN = 2` (all but `preprerelax`), so
+`incar_tags={"ISPIN": 1}` runs without spin polarization. VASP's default `NBANDS` may still end up explicit:
+at launch the VASP launch wrapper writes it rounded to the band-group count
+when the launch has more than one band group and the rounded default stays
+within `2 × NELECT`, unless the run is one it leaves to VASP (DFPT, hybrid,
+GW-type, `IMAGES`) or the setting `vasp.nbands_rounding` is `off` (see
 *httk-workflow-vasp*'s helper details). The KPOINTS grid comes from the stage's k-point density. Every remedy the job
 has already applied is re-applied, so a remedy found necessary in one stage
 stays in force in the later ones, as in v1. Finally, a template's
@@ -109,8 +112,8 @@ There are several ways to change individual INCAR settings:
 * `incar_tags` (a job parameter) — tags applied to every stage, winning over
   the templates and every derived value. A `null` value removes the tag, the
   template's line included, and keeps the runner from deriving one, so VASP
-  uses its own default: `httk job new ... --parameter 'incar_tags={"NBANDS": null, "MAGMOM": null}'`
-  runs with VASP's band count and moments.
+  uses its own default: `httk job new ... --parameter 'incar_tags={"LREAL": null}'`
+  runs without the template's `LREAL`, i.e. with VASP's `.FALSE.`.
 * `files/INCAR.<stage>` (a payload file of one job, e.g. `files/INCAR.relax`) —
   replaces that stage's template wholesale for that job.
 * Edit the templates of a copied package — the v1 way: copy the package
@@ -640,7 +643,8 @@ runs no VASP itself. It declares `[workflow.calls] relax = "vasp.relax"` and
   in `incar_tags` (`vasp.unsupported_incar_tag`) and the cell-dependent
   `MAGMOM`, `NELECT`, `NUPDOWN`, `NG[XYZ]`, `NG[XYZ]F` or a POSCAR comment's
   `[MAGMOM=...]` (`vasp.cell_dependent_tag_unsupported`: magnetic phonons are
-  out of scope for now). With `relax` (default true) it calls the tight
+  out of scope for now); a `null` in `incar_tags` only removes the tag (VASP's
+  default) and is allowed. With `relax` (default true) it calls the tight
   `vasp.relax` exactly as `vasp-elastic` does; with `relax = false` the input
   structure is taken as relaxed.
 - `displace` copies the relaxed structure to `relaxed/POSCAR`. With
@@ -763,7 +767,9 @@ progress ── whenever a child ends: once band_structure has ended, call dos o
 - `start` validates the parameters (`vasp.input_invalid`) and refuses the
   cell-dependent `MAGMOM`, `NELECT`, `NUPDOWN`, `NG[XYZ]`, `NG[XYZ]F` in
   `incar_tags` or any `<label>_parameters.incar_tags`, or a POSCAR comment's
-  `[MAGMOM=...]` (`vasp.cell_dependent_tag_unsupported`), before any child.
+  `[MAGMOM=...]` (`vasp.cell_dependent_tag_unsupported`), before any child; a
+  `null` in any of these `incar_tags` only removes the tag (VASP's default) and
+  is allowed.
   It calls `vasp.relax` (child `relax`) with this package's tight
   `templates/INCAR.relax`, as `vasp-elastic` does; a failed relaxation fails
   `vasp.relax_failed`.
@@ -851,8 +857,12 @@ httk job new --workspace main --workflow vasp.full-characterization --input-from
 ## vasp-general
 
 `vasp-general` runs any VASP calculation: the job supplies every input file
-but the POTCAR, and VASP runs on them exactly as given. Nothing is derived, so
-INCAR and KPOINTS reach VASP byte for byte. A job payload looks like:
+but the POTCAR, and VASP runs on them as given. Nothing is derived, except
+that the VASP launch wrapper may write planned `KPAR`/`NCORE` and a rounded
+`NBANDS` into the INCAR (and logs them), unless the INCAR sets them (`KPAR`,
+`NCORE` or `NPAR` for the planned pair) or the settings `vasp.parallelization`
+and `vasp.nbands_rounding` are `off`. With both `off` (or on one rank) the INCAR
+reaches VASP byte for byte, as KPOINTS always does. A job payload looks like:
 
 ```
 files/INCAR      required
@@ -911,7 +921,7 @@ that the band stage always runs with `ICHARG = 11`. Remedies that move the
 structure (`scale_lattice`, `contcar_to_poscar`) are never applied, nor, in the
 band stage, an `ICHARG` change; the ladder goes on to its next rung instead.
 `NBANDS` may differ between the stages (more bands show more of the
-conduction range); its derived default is the same in both.
+conduction range); unset, it is VASP's default in both.
 
 The job fails by name when (the first five in `prepare`, before any VASP run,
 where the INCAR checks read `incar_tags` and each stage's payload INCAR, or its

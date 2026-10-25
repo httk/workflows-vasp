@@ -474,3 +474,15 @@ def test_refused_inputs_fail_before_any_call(
     if code == "vasp.supercell_too_large":
         assert failure["details"] == {"multiples": [2, 2, 2], "atoms": 16}
     assert len(list_jobs(workspace)) == 1
+
+
+def test_a_null_magmom_is_vasps_default_and_not_a_cell_dependent_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    parameters = {"relax": False, "min_length": 6.0, "incar_tags": {"MAGMOM": None}}
+    workspace, job_id = _campaign(tmp_path / "null", monkeypatch, parameters)
+
+    kind, payload = _job(workspace, job_id)
+    assert kind == "succeeded", _failure(workspace, job_id)
+    children = [_job(workspace, record["job_id"])[1] for record in _phonons(payload)["children"]]
+    assert children and all("MAGMOM" not in run["tags"] for child in children for run in _runs(child))

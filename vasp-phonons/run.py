@@ -308,7 +308,13 @@ def start(a: Attempt) -> None:
             return
     # Checked before the relaxation: the relaxed CONTCAR keeps the input POSCAR's comment.
     comment = {"MAGMOM"} if "[MAGMOM=" in read_poscar_header(poscar).comment else set()
-    for source, tags in (("incar_tags", explicit), (f"the comment of {poscar.name}", comment)):
+    assigned = {
+        str(tag).strip().upper()
+        for tag, value in dict(a.parameter("incar_tags", {}) or {}).items()
+        # A null tag is removed (VASP's default), which depends on no cell.
+        if value is not None
+    }
+    for source, tags in (("incar_tags", assigned), (f"the comment of {poscar.name}", comment)):
         for tag in CELL_DEPENDENT_TAGS:
             if tag in tags:
                 a.fail(

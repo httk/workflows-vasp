@@ -258,7 +258,8 @@ def start(a: Attempt) -> None:
     )
     for source, tags in sources.items():
         for tag in CELL_DEPENDENT_TAGS:
-            if tag in {str(name).strip().upper() for name in tags}:
+            # A null tag is removed (VASP's default), which depends on no cell.
+            if tag in {str(name).strip().upper() for name, value in dict(tags).items() if value is not None}:
                 a.fail(
                     "vasp.cell_dependent_tag_unsupported",
                     f"{tag} from {source} is not supported: the children run on the standardized cell, whose sites "

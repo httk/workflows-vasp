@@ -473,3 +473,17 @@ def test_refused_inputs_fail_before_any_child(
     workspace, job_id, _ = _campaign(tmp_path / "refused", monkeypatch, parameters)
     assert _failure(workspace, job_id)["code"] == code
     assert len(_jobs(workspace)) == 1
+
+
+def test_a_null_magmom_is_vasps_default_and_not_a_cell_dependent_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    parameters = {
+        "parts": "eos",
+        "incar_tags": {"MAGMOM": None},
+        "eos_parameters": {"number_of_frames": 5, "incar_tags": {"MAGMOM": None}},
+    }
+    workspace, job_id, _ = _campaign(tmp_path / "null", monkeypatch, parameters)
+    assert resolve_job(workspace, job_id).state == "succeeded", _failure(workspace, job_id)
+    runs = [run for path, _ in _jobs(workspace).values() for run in _runs(path)]
+    assert runs and all("MAGMOM" not in run["tags"] for run in runs)

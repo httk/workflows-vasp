@@ -116,7 +116,10 @@ def test_the_ladder_never_scales_the_cell_and_skips_excluded_rungs(
     assert (workdir / "POSCAR").read_text(encoding="utf-8").splitlines()[1] == "1.0"
     first, second = _runs(workdir)
     if step == 2:
-        assert int(second["tags"]["NBANDS"]) > int(first["tags"]["NBANDS"])
+        # The first run had VASP's default: max(floor((8 + 2) / 2) + 3, floor(0.6 * 8)) = 8 for two Si (8
+        # electrons), plus floor((2 + 1) / 2) = 1 for ISPIN = 2 with the default moments, so 9.
+        assert "NBANDS" not in first["tags"]
+        assert int(second["tags"]["NBANDS"]) > 9
         assert (workdir / "KPOINTS").read_text(encoding="utf-8").splitlines()[3] == "11 11 11"
     else:
         assert (workdir / "KPOINTS").read_text(encoding="utf-8").splitlines()[3] != "11 11 11"
