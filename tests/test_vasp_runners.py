@@ -30,6 +30,7 @@ import json
 import re
 import runpy
 import shutil
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -1043,3 +1044,189 @@ def test_vasp_cli_runs_and_collects_default_workdir_or_published_results(
                 assert report["final_energy"] == pytest.approx(energy)
             else:
                 assert f"{energy:.8f} eV" in (result.output_dir / "relaxation_energies.svg").read_text()
+
+
+@pytest.mark.parametrize(
+    ("directory", "parameters"),
+    [("vasp-static", {}), ("vasp-relax-ions", {"incar_tags": {"ICHARG": 1}})],
+)
+def test_a_supplied_charge_density_is_staged_and_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, directory: str, parameters: dict[str, object]
+) -> None:
+    # vasp-static's template asks for ICHARG = 1; vasp-relax-ions' starts from atomic charges.
+    workspace, job_id = _campaign(
+        tmp_path / "c", monkeypatch, directory, parameters=parameters, extra_files={"CHGCAR": "density\n"}
+    )
+
+    kind, payload = _payload_of(workspace, job_id)
+    assert kind == "succeeded"
+    (run,) = _runs(payload / "run")
+    assert (run["tags"]["ICHARG"], run["CHGCAR"]) == ("1", True)
+
+
+def test_an_icharg_from_incar_tags_is_kept_and_needs_a_charge_density(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace, job_id = _campaign(
+        tmp_path / "missing", monkeypatch, "vasp-static", parameters={"incar_tags": {"ICHARG": 1}}
+    )
+    assert _failure(workspace, job_id)["code"] == "vasp.input_missing"
+
+    workspace, job_id = _campaign(
+        tmp_path / "nscf",
+        monkeypatch,
+        "vasp-static",
+        parameters={"incar_tags": {"icharg": 11}},
+        extra_files={"CHGCAR": "density\n"},
+    )
+    kind, payload = _payload_of(workspace, job_id)
+    assert kind == "succeeded"
+    (run,) = _runs(payload / "run")
+    assert run["tags"]["ICHARG"] == "11"
+
+
+def test_a_charge_density_of_another_cutoff_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    scf_incar = _template("vasp-static", "INCAR.static").replace("ENCUT=600", "ENCUT=520")
+    workspace, job_id = _campaign(
+        tmp_path / "c",
+        monkeypatch,
+        "vasp-static",
+        extra_files={"CHGCAR": "density\n", "scf-INCAR": scf_incar},
+    )
+
+    failure = _failure(workspace, job_id)
+    assert failure["code"] == "vasp.charge_density_incompatible"
+    assert failure["details"]["differences"] == {"ENCUT": {"scf": "520", "staged": "600"}}
+
+
+_CHECKER = """import json, sys
+for line in sys.stdin:
+    if json.loads(line).get("event") == "line":
+        print(json.dumps({"format": "httk-workflow-checker-result", "format_version": 2, "code": "my_check",
+            "severity": "fatal", "summary": "my check", "stop": True}), flush=True)
+"""
+
+
+def test_a_diagnostic_policy_is_validated_and_applied(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    workspace, job_id = _campaign(tmp_path / "bad", monkeypatch, "vasp-static", parameters={"diagnostic_policy": "x"})
+    assert _failure(workspace, job_id)["code"] == "vasp.input_invalid"
+
+    workspace, job_id = _campaign(
+        tmp_path / "continue",
+        monkeypatch,
+        "vasp-static",
+        parameters={"diagnostic_policy": {"zpotrf": "continue"}, "maximum_remedies": 0},
+        fail_once=True,
+    )
+    kind, payload = _payload_of(workspace, job_id)
+    assert kind == "failed"
+    report = json.loads((payload / "run" / "vasp-run-report.json").read_text(encoding="utf-8"))
+    assert report["diagnostic_policy"] == {"zpotrf": "continue"}
+    # Kept, but no longer stopping the run: VASP's own exit status classifies it.
+    assert [(item["code"], item["stop"]) for item in report["diagnostics"] if item["code"] == "zpotrf"] == [
+        ("zpotrf", False)
+    ]
+    assert report["classification"] == "process_failure"
+
+
+def test_a_job_checker_stops_the_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    spec = {
+        "format": "httk-workflow-checker-spec",
+        "format_version": 2,
+        "argv": [sys.executable, "./checker.py"],
+        "sources": [{"path": "OUTCAR"}],
+    }
+    workspace, job_id = _campaign(
+        tmp_path / "checker",
+        monkeypatch,
+        "vasp-static",
+        parameters={"checkers": "files/checker.json"},
+        extra_files={"checker.json": json.dumps(spec), "checker.py": _CHECKER},
+    )
+    kind, payload = _payload_of(workspace, job_id)
+    assert kind == "failed"
+    report = json.loads((payload / "run" / "vasp-run-report.json").read_text(encoding="utf-8"))
+    assert "my_check" in [item["code"] for item in report["diagnostics"]]
+
+    workspace, job_id = _campaign(tmp_path / "missing", monkeypatch, "vasp-static", parameters={"checkers": "files/no"})
+    assert _failure(workspace, job_id)["code"] == "vasp.input_invalid"
+
+
+def _two_variant_library(root: Path) -> Path:
+    library = root / "library"
+    for variant in ("Si", "Si_sv"):
+        (library / variant).mkdir(parents=True)
+        (library / variant / "POTCAR").write_text(_POTCAR.replace("Si", variant), encoding="utf-8")
+    return library
+
+
+def test_a_potcar_variant_is_pinned(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    library = _two_variant_library(tmp_path)
+    workspace, job_id = _campaign(
+        tmp_path / "general-variant",
+        monkeypatch,
+        "vasp-general",
+        files=("POSCAR",),
+        extra_files={"INCAR": _GENERAL_INCAR},
+        parameters={"pseudopotential_library": str(library), "potcar_variants": "Si=Si_sv"},
+    )
+
+    kind, payload = _payload_of(workspace, job_id)
+    assert kind == "succeeded"
+    (potential,) = json.loads((payload / "run" / "POTCAR.provenance.json").read_text(encoding="utf-8"))["potentials"]
+    assert (potential["variant"], potential["override"]) == ("Si_sv", True)
+
+
+@pytest.mark.parametrize(("parameter", "expected"), ((None, "Si_sv"), ("Si=Si", "Si")))
+def test_the_job_parameter_wins_over_the_potcar_variants_setting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, parameter: str | None, expected: str
+) -> None:
+    parameters: dict[str, object] = {"pseudopotential_library": str(_two_variant_library(tmp_path))}
+    if parameter is not None:
+        parameters["potcar_variants"] = parameter
+    workspace, job_id = _campaign(
+        tmp_path / "static-variant",
+        monkeypatch,
+        "vasp-static",
+        files=("POSCAR",),
+        parameters=parameters,
+        workspace_settings={"vasp.potcar_variants": "Si=Si_sv"},
+    )
+
+    kind, payload = _payload_of(workspace, job_id)
+    assert kind == "succeeded"
+    (potential,) = json.loads((payload / "run" / "POTCAR.provenance.json").read_text(encoding="utf-8"))["potentials"]
+    assert (potential["variant"], potential["override"]) == (expected, True)
+
+
+def test_an_icharg_from_incar_tags_survives_the_remedy_ladder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The fexcf ladder's first two rungs set ICHARG = 2; with ICHARG pinned the third rung applies.
+    workspace, job_id = _campaign(
+        tmp_path / "pinned",
+        monkeypatch,
+        "vasp-static",
+        parameters={"incar_tags": {"ICHARG": 1}},
+        extra_files={"CHGCAR": "density\n"},
+        fail_once=True,
+        fake={"failure": "FEXCF: supplied exchange-correlation table"},
+    )
+
+    kind, payload = _payload_of(workspace, job_id)
+    assert kind == "succeeded"
+    first, second = _runs(payload / "run")
+    assert (first["tags"]["ICHARG"], second["tags"]["ICHARG"], second["tags"]["ALGO"]) == ("1", "1", "All")
+
+
+def test_a_scf_incar_without_a_charge_density_fails_by_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    workspace, job_id = _campaign(
+        tmp_path / "c", monkeypatch, "vasp-static", extra_files={"scf-INCAR": _template("vasp-static", "INCAR.static")}
+    )
+    assert _failure(workspace, job_id)["code"] == "vasp.input_missing"
+
+
+def test_every_composite_forwards_the_supervision_parameters_but_not_checkers() -> None:
+    for directory in ("vasp-elastic", "vasp-eos", "vasp-phonons", "vasp-full-characterization"):
+        shared = runpy.run_path(str(REPO_ROOT / directory / "run.py"))["SHARED"]
+        assert {"potcar_variants", "diagnostic_policy"} <= set(shared) and "checkers" not in shared, directory
+    own = runpy.run_path(str(REPO_ROOT / "vasp-relax-static-hse" / "run.py"))["OWN"]
+    assert "checkers" in own and not {"potcar_variants", "diagnostic_policy"} & set(own)

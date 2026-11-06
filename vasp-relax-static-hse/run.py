@@ -71,6 +71,8 @@ OWN = {
     "hessian_from_pbe": False,
     "poscar": "files/POSCAR",
     "potcar": "files/POTCAR",
+    # Spec paths name this payload's files, which the stages do not get.
+    "checkers": "",
 }
 
 run = Runner("vasp.relax-static-hse")
@@ -162,6 +164,12 @@ def child_record(child) -> dict:
 def start(a: Attempt) -> None:
     """Call the PBE stage, or with a PBE-relaxed input the HSE stage directly."""
 
+    if a.parameter("checkers", None):
+        a.fail(
+            "vasp.input_invalid",
+            "checkers are set on the leaf VASP jobs, not on this composite: its children do not get the spec files",
+        )
+        return
     mode = str(parameter(a, "mode"))
     if mode not in ("no_pbe", "start_from_pbe"):
         a.fail("vasp.input_invalid", f"mode must be no_pbe or start_from_pbe, not {mode!r}")

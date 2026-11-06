@@ -48,6 +48,8 @@ SHARED = (
     "timeout",
     "vasp_command",
     "remedy_policy",
+    "potcar_variants",
+    "diagnostic_policy",
 )
 # The remedies that would change the numerics of one child but not the others.
 EXCLUDED_REMEDIES = "bump_kpoints equal_kpoints centering incar.ISMEAR incar.SIGMA incar.LREAL scale_lattice"
@@ -277,6 +279,12 @@ def inconsistencies(records: list[dict]) -> dict:
 def start(a: Attempt) -> None:
     """Validate the parameters, then call the tight relaxation, or with ``relax = false`` go on to the deformations."""
 
+    if a.parameter("checkers", None):
+        a.fail(
+            "vasp.input_invalid",
+            "checkers are set on the leaf VASP jobs, not on this composite: its children do not get the spec files",
+        )
+        return
     try:
         relax = flag(a.parameter("relax", True))
         strain_states(a.parameter("strain_states", None) or [list(state) for state in DEFAULT_STATES])

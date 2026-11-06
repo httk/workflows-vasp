@@ -56,6 +56,8 @@ SHARED = (
     "timeout",
     "vasp_command",
     "remedy_policy",
+    "potcar_variants",
+    "diagnostic_policy",
 )
 PARTS = ("band_structure", "dos", "elastic", "eos", "dielectric", "phonons")
 # The parameters this job sets itself on a child; they win over <label>_parameters.
@@ -238,6 +240,12 @@ def finish(a: Attempt, parts: dict, decisions: dict) -> None:
 def start(a: Attempt) -> None:
     """Validate the parameters, then call the tight relaxation."""
 
+    if a.parameter("checkers", None):
+        a.fail(
+            "vasp.input_invalid",
+            "checkers are set on the leaf VASP jobs, not on this composite: its children do not get the spec files",
+        )
+        return
     try:
         settings(a)
     except ValueError as exception:

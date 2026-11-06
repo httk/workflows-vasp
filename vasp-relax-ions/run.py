@@ -31,6 +31,13 @@ repository's README. Nothing here imports anything but an installed
 by git URI (e.g. ``git+https://github.com/httk/workflows-vasp#vasp-relax-ions``) or
 with ``--workflow-dir``, or copy the package directory and edit it. The runner
 file alone, without its ``templates/``, fails with ``vasp.template_missing``.
+
+A payload ``files/CHGCAR`` (and ``files/WAVECAR``) is staged under the rules of
+``vasp-static``. The template starts from atomic charges (``ICHARG = 2``), so the
+density is read with ``incar_tags = {"ICHARG": 1}``, which is never changed and
+fails ``vasp.input_missing`` without a CHGCAR; a template edited to
+``ICHARG = 1`` becomes ``ICHARG = 2`` without one, and a payload
+``files/scf-INCAR`` must agree on ``PREC``, ``ENCUT`` and ``ENAUG``.
 """
 
 import re
@@ -45,9 +52,12 @@ from httk.codes.vasp import (
     clean_vasp_outputs,
     job_remedy_history_path,
     last_oszicar_energy,
+    parse_diagnostic_policy,
+    parse_potcar_variants,
     plan_vasp_remedy,
     prepare_vasp_inputs,
     rattle_poscar,
+    read_checker_specs,
     read_incar,
     run_vasp,
     update_incar,
@@ -61,6 +71,8 @@ COLLECT = "INCAR KPOINTS OUTCAR CONTCAR OSZICAR vasprun.xml vasp-run-report.json
 # them itself when it reuses them.
 KEEP_BETWEEN_RUNS = ("WAVECAR", "CHGCAR", "CHG")
 TEMPLATES = Path(__file__).resolve().parent / "templates"
+# The INCAR tags that fix the FFT grid a CHGCAR is written on.
+GRID_TAGS = ("PREC", "ENCUT", "ENAUG")
 # The tags that make this workflow a fixed-cell ionic relaxation.
 DEFINING_TAGS = ("ISIF", "IBRION", "NSW")
 
@@ -98,6 +110,74 @@ def excluded_remedies(value: object) -> set[str]:
             f"not {value!r}"
         )
     return set(names)
+
+
+def pinned_icharg(a: Attempt) -> set[str]:
+    """Return ``{"incar.ICHARG"}`` when the job's ``incar_tags`` set ``ICHARG``, which no remedy may change."""
+
+    tags = dict(a.parameter("incar_tags", {}) or {})
+    return {"incar.ICHARG"} if any(str(tag).strip().upper() == "ICHARG" for tag in tags) else set()
+
+
+def stage_charge_density(a: Attempt, explicit: dict[str, object]) -> bool:
+    """Settle ``ICHARG`` against the staged ``CHGCAR`` and check the density, after input preparation.
+
+    An ``ICHARG`` from *explicit* (the job's ``incar_tags``) is never changed; the
+    template's ``ICHARG = 1`` becomes 2 without a staged ``CHGCAR`` to read.
+
+    :param a: The attempt whose workdir holds the prepared inputs.
+    :param explicit: The job's ``incar_tags``.
+    :return: Whether the job may go on; when not, it has failed.
+    """
+
+    incar = a.workdir / "INCAR"
+    chgcar = a.workdir / "CHGCAR"
+    has_density = chgcar.is_file() and chgcar.stat().st_size > 0
+    named = a.parameter("chgcar", "files/CHGCAR")
+    expected = {"expected": str(a.payload / named)}
+    requested = {str(tag).strip().upper(): value for tag, value in explicit.items()}
+    if "ICHARG" in requested:
+        value = requested["ICHARG"]
+        if str(value).strip() in ("1", "11") and not has_density:
+            a.fail(
+                "vasp.input_missing",
+                f"ICHARG = {str(value).strip()} from incar_tags reads a charge density, but this payload has no non-empty {named}",
+                details={"ICHARG": value, **expected},
+            )
+            return False
+    elif read_incar(incar).get("ICHARG") == "1" and not has_density:
+        update_incar({"ICHARG": 2}, incar)
+    scf_incar = a.payload / a.parameter("scf_incar", "files/scf-INCAR")
+    if not scf_incar.is_file():
+        return True
+    if not has_density:
+        a.fail(
+            "vasp.input_missing",
+            f"{scf_incar.name} describes a charge density, but this payload has no non-empty {named}",
+            details=expected,
+        )
+        return False
+    scf, staged = read_incar(scf_incar), read_incar(incar)
+
+    def normalized(value: str | None) -> str | None:
+        return None if value is None else value.strip().lower()
+
+    differences = {
+        tag: {"scf": scf.get(tag), "staged": staged.get(tag)}
+        for tag in GRID_TAGS
+        if normalized(scf.get(tag)) != normalized(staged.get(tag))
+    }
+    if differences:
+        listed = "; ".join(
+            f"{tag} {pair['scf']!r} in {scf_incar.name}, {pair['staged']!r} here" for tag, pair in differences.items()
+        )
+        a.fail(
+            "vasp.charge_density_incompatible",
+            f"this calculation cannot read the supplied charge density: {listed}",
+            details={"differences": differences},
+        )
+        return False
+    return True
 
 
 @run.step
@@ -139,6 +219,11 @@ def prepare(a: Attempt) -> None:
         return
     try:
         excluded_remedies(a.parameter("excluded_remedies", ""))
+        variants = parse_potcar_variants(
+            a.parameter("potcar_variants", None) or a.setting("vasp.potcar_variants", None)
+        )
+        parse_diagnostic_policy(a.parameter("diagnostic_policy", None) or a.setting("vasp.diagnostic_policy", None))
+        read_checker_specs(a.parameter("checkers", ""), base=a.payload)
     except ValueError as exception:
         a.fail("vasp.input_invalid", str(exception))
         return
@@ -159,7 +244,13 @@ def prepare(a: Attempt) -> None:
     potcar = a.payload / a.parameter("potcar", "files/POTCAR")
     if potcar.is_file():
         shutil.copyfile(potcar, a.workdir / "POTCAR")
+        if variants:
+            a.log.append("note", "potcar_variants is not used: this payload supplies its own POTCAR")
         library = None
+    for name in ("CHGCAR", "WAVECAR"):
+        supplied = a.payload / a.parameter(name.lower(), f"files/{name}")
+        if supplied.is_file():
+            shutil.copyfile(supplied, a.workdir / name)
     parallel_value = a.parameter("parallel_value", None)
     options = VaspPreparationOptions(
         kpoint_density=float(a.parameter("kpoint_density", 20.0) or 20.0),
@@ -168,6 +259,7 @@ def prepare(a: Attempt) -> None:
         # v1: a relaxation converges its electrons tighter, so its ionic steps are more accurate.
         ediff_margin=500.0,
         pseudopotential_library=library,
+        potcar_variants=variants,
         parallel_tag=a.parameter("parallel_tag", None) or None,
         parallel_value=None if parallel_value is None else int(parallel_value),
         # The template's own EDIFF/EDIFFG are kept rather than derived; the job's tags win over both.
@@ -178,9 +270,8 @@ def prepare(a: Attempt) -> None:
     if grid:
         write_automatic_kpoints(grid, a.workdir / "KPOINTS", centering=options.centering)
         a.log.append("note", f"fixed the k-point mesh at {' '.join(map(str, grid))} ({options.centering})")
-    # A relaxation of its own has no earlier run's charge density to read.
-    if read_incar(incar).get("ICHARG") == "1":
-        update_incar({"ICHARG": 2}, incar)
+    if not stage_charge_density(a, explicit):
+        return
     a.log.append("note", f"prepared a vasp.relax-ions calculation with ISIF = {isif}")
     a.advance("run")
 
@@ -202,7 +293,13 @@ def run_step(a: Attempt) -> None:
     # survive on purpose, since a remedy and a restart are derived from them.
     clean_vasp_outputs(a.workdir, keep=KEEP_BETWEEN_RUNS)
     try:
-        report = run_vasp(argv, directory=a.workdir, timeout=a.parameter("timeout", 86400.0))
+        report = run_vasp(
+            argv,
+            directory=a.workdir,
+            timeout=a.parameter("timeout", 86400.0),
+            policy=a.parameter("diagnostic_policy", None) or a.setting("vasp.diagnostic_policy", None),
+            checkers=read_checker_specs(a.parameter("checkers", ""), base=a.payload),
+        )
     except OSError as exception:
         a.fail("vasp.failed", f"could not run VASP at all: {exception}")
         return
@@ -230,7 +327,9 @@ def run_step(a: Attempt) -> None:
             history_path=history,
             policy=a.parameter("remedy_policy", "reviewed-v1"),
             # The cell is part of the question asked: never scale it.
-            excluded_operations={"scale_lattice"} | excluded_remedies(a.parameter("excluded_remedies", "")),
+            excluded_operations={"scale_lattice"}
+            | excluded_remedies(a.parameter("excluded_remedies", ""))
+            | pinned_icharg(a),
         )
     except ValueError as exception:
         a.state.merge(state)

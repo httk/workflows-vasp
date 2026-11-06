@@ -38,8 +38,11 @@ from httk.codes.vasp import (
     clean_vasp_outputs,
     job_remedy_history_path,
     last_oszicar_energy,
+    parse_diagnostic_policy,
+    parse_potcar_variants,
     plan_vasp_remedy,
     prepare_vasp_inputs,
+    read_checker_specs,
     read_incar,
     read_poscar_header,
     run_vasp,
@@ -194,6 +197,11 @@ def prepare(a: Attempt) -> None:
         return
     try:
         excluded_remedies(a.parameter("excluded_remedies", ""))
+        variants = parse_potcar_variants(
+            a.parameter("potcar_variants", None) or a.setting("vasp.potcar_variants", None)
+        )
+        parse_diagnostic_policy(a.parameter("diagnostic_policy", None) or a.setting("vasp.diagnostic_policy", None))
+        read_checker_specs(a.parameter("checkers", ""), base=a.payload)
     except ValueError as exception:
         a.fail("vasp.input_invalid", str(exception))
         return
@@ -219,6 +227,8 @@ def prepare(a: Attempt) -> None:
     potcar = a.payload / a.parameter("potcar", "files/POTCAR")
     if potcar.is_file():
         shutil.copyfile(potcar, a.workdir / "POTCAR")
+        if variants:
+            a.log.append("note", "potcar_variants is not used: this payload supplies its own POTCAR")
         library = None
     parallel_value = a.parameter("parallel_value", None)
     options = VaspPreparationOptions(
@@ -226,6 +236,7 @@ def prepare(a: Attempt) -> None:
         centering=a.parameter("centering", "Gamma"),
         accuracy_per_atom=a.parameter("accuracy_per_atom", 0.001),
         pseudopotential_library=library,
+        potcar_variants=variants,
         parallel_tag=a.parameter("parallel_tag", None) or None,
         parallel_value=None if parallel_value is None else int(parallel_value),
         # The template's own EDIFF/EDIFFG are kept rather than derived; the job's tags win over both.
@@ -259,7 +270,13 @@ def run_step(a: Attempt) -> None:
     # survive on purpose, since a remedy and a restart are derived from them.
     clean_vasp_outputs(a.workdir, keep=KEEP_BETWEEN_RUNS)
     try:
-        report = run_vasp(argv, directory=a.workdir, timeout=a.parameter("timeout", 86400.0))
+        report = run_vasp(
+            argv,
+            directory=a.workdir,
+            timeout=a.parameter("timeout", 86400.0),
+            policy=a.parameter("diagnostic_policy", None) or a.setting("vasp.diagnostic_policy", None),
+            checkers=read_checker_specs(a.parameter("checkers", ""), base=a.payload),
+        )
     except OSError as exception:
         a.fail("vasp.failed", f"could not run VASP at all: {exception}")
         return

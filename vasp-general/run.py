@@ -44,8 +44,11 @@ from httk.codes.vasp import (
     clean_vasp_outputs,
     job_remedy_history_path,
     last_oszicar_energy,
+    parse_diagnostic_policy,
+    parse_potcar_variants,
     plan_vasp_remedy,
     rattle_poscar,
+    read_checker_specs,
     run_vasp,
     validate_vasp_workdir,
 )
@@ -66,6 +69,15 @@ def prepare(a: Attempt) -> None:
     """Copy the job's input files into the workdir, supply a POTCAR, and go on to run VASP."""
 
     validate_vasp_workdir(a.workdir)
+    try:
+        variants = parse_potcar_variants(
+            a.parameter("potcar_variants", None) or a.setting("vasp.potcar_variants", None)
+        )
+        parse_diagnostic_policy(a.parameter("diagnostic_policy", None) or a.setting("vasp.diagnostic_policy", None))
+        read_checker_specs(a.parameter("checkers", ""), base=a.payload)
+    except ValueError as exception:
+        a.fail("vasp.input_invalid", str(exception))
+        return
     files = a.payload / "files"
     skipped = []
     if files.is_dir():
@@ -84,7 +96,10 @@ def prepare(a: Attempt) -> None:
             details={"missing": missing},
         )
         return
-    if not (a.workdir / "POTCAR").is_file():
+    if (a.workdir / "POTCAR").is_file():
+        if variants:
+            a.log.append("note", "potcar_variants is not used: this payload supplies its own POTCAR")
+    else:
         library = a.setting("vasp.pseudo_library", a.parameter("pseudopotential_library", None)) or None
         if library is None:
             a.fail(
@@ -95,7 +110,7 @@ def prepare(a: Attempt) -> None:
             )
             return
         try:
-            assemble_potcar(library, poscar=a.workdir / "POSCAR", output=a.workdir / "POTCAR")
+            assemble_potcar(library, poscar=a.workdir / "POSCAR", output=a.workdir / "POTCAR", variants=variants)
         except FileNotFoundError as exception:
             a.fail("vasp.input_missing", f"could not assemble a POTCAR: {exception}", details={"missing": ["POTCAR"]})
             return
@@ -120,7 +135,13 @@ def run_step(a: Attempt) -> None:
     # survive on purpose, since a remedy and a restart are derived from them.
     clean_vasp_outputs(a.workdir, keep=KEEP_BETWEEN_RUNS)
     try:
-        report = run_vasp(argv, directory=a.workdir, timeout=a.parameter("timeout", 86400.0))
+        report = run_vasp(
+            argv,
+            directory=a.workdir,
+            timeout=a.parameter("timeout", 86400.0),
+            policy=a.parameter("diagnostic_policy", None) or a.setting("vasp.diagnostic_policy", None),
+            checkers=read_checker_specs(a.parameter("checkers", ""), base=a.payload),
+        )
     except OSError as exception:
         a.fail("vasp.failed", f"could not run VASP at all: {exception}")
         return

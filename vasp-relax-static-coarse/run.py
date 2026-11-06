@@ -169,8 +169,11 @@ from httk.codes.vasp import (
     job_remedy_history_path,
     last_oszicar_energy,
     normalize_poscar_handedness,
+    parse_diagnostic_policy,
+    parse_potcar_variants,
     plan_vasp_remedy,
     prepare_vasp_inputs,
+    read_checker_specs,
     read_incar,
     reapply_vasp_remedies,
     run_vasp,
@@ -794,6 +797,15 @@ def prepare(a: Attempt) -> None:
     """Stage the structure, POTCAR and seed WAVECARs, set up the optimizer, and go on to the first evaluation."""
 
     validate_vasp_workdir(a.workdir)
+    try:
+        variants = parse_potcar_variants(
+            a.parameter("potcar_variants", None) or a.setting("vasp.potcar_variants", None)
+        )
+        parse_diagnostic_policy(a.parameter("diagnostic_policy", None) or a.setting("vasp.diagnostic_policy", None))
+        read_checker_specs(a.parameter("checkers", ""), base=a.payload)
+    except ValueError as exception:
+        a.fail("vasp.input_invalid", str(exception))
+        return
     if parameter(a, "acceptance") not in ACCEPTANCE:
         a.fail(
             "vasp.input_invalid",
@@ -812,6 +824,8 @@ def prepare(a: Attempt) -> None:
     potcar = a.payload / a.parameter("potcar", "files/POTCAR")
     if potcar.is_file():
         shutil.copyfile(potcar, a.workdir / "POTCAR")
+        if variants:
+            a.log.append("note", "potcar_variants is not used: this payload supplies its own POTCAR")
     normalize_poscar_handedness(a.workdir / "POSCAR")
     try:
         reference = read_poscar(a.workdir / "POSCAR")
@@ -916,6 +930,9 @@ def stage_inputs(a: Attempt, driver: dict, plan: dict) -> dict:
         centering=centering,
         accuracy_per_atom=a.parameter("accuracy_per_atom", 0.001),
         pseudopotential_library=library,
+        potcar_variants=parse_potcar_variants(
+            a.parameter("potcar_variants", None) or a.setting("vasp.potcar_variants", None)
+        ),
         parallel_tag=a.parameter("parallel_tag", None) or None,
         parallel_value=None if parallel_value is None else int(parallel_value),
         normalize_handedness=False,
@@ -1089,7 +1106,13 @@ def evaluate(a: Attempt) -> None:
         return
     started = time.monotonic()
     try:
-        report = run_vasp(argv, directory=a.workdir, timeout=a.parameter("timeout", 86400.0))
+        report = run_vasp(
+            argv,
+            directory=a.workdir,
+            timeout=a.parameter("timeout", 86400.0),
+            policy=a.parameter("diagnostic_policy", None) or a.setting("vasp.diagnostic_policy", None),
+            checkers=read_checker_specs(a.parameter("checkers", ""), base=a.payload),
+        )
     except OSError as exception:
         a.fail("vasp.failed", f"could not run VASP at all: {exception}")
         return

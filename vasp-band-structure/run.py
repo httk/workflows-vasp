@@ -84,8 +84,11 @@ from httk.codes.vasp import (
     clean_vasp_outputs,
     job_remedy_history_path,
     last_oszicar_energy,
+    parse_diagnostic_policy,
+    parse_potcar_variants,
     plan_vasp_remedy,
     prepare_vasp_inputs,
+    read_checker_specs,
     read_incar,
     read_poscar_header,
     reapply_vasp_remedies,
@@ -143,6 +146,15 @@ def prepare(a: Attempt) -> None:
     """Standardize the structure to its HPKOT primitive cell, write the band path, and go on to the scf stage."""
 
     validate_vasp_workdir(a.workdir)
+    try:
+        variants = parse_potcar_variants(
+            a.parameter("potcar_variants", None) or a.setting("vasp.potcar_variants", None)
+        )
+        parse_diagnostic_policy(a.parameter("diagnostic_policy", None) or a.setting("vasp.diagnostic_policy", None))
+        read_checker_specs(a.parameter("checkers", ""), base=a.payload)
+    except ValueError as exception:
+        a.fail("vasp.input_invalid", str(exception))
+        return
     poscar = a.payload / a.parameter("poscar", "files/POSCAR")
     if not poscar.is_file():
         a.fail(
@@ -235,6 +247,8 @@ def prepare(a: Attempt) -> None:
     potcar = a.payload / a.parameter("potcar", "files/POTCAR")
     if potcar.is_file():
         shutil.copyfile(potcar, a.workdir / "POTCAR")
+        if variants:
+            a.log.append("note", "potcar_variants is not used: this payload supplies its own POTCAR")
     symbol = result.bravais_lattice_extended
     write_line_mode_kpoints(
         a.workdir / "KPOINTS.bands",
@@ -286,6 +300,9 @@ def stage_inputs(a: Attempt, name: str) -> bool:
         accuracy_per_atom=a.parameter("accuracy_per_atom", 0.001),
         ediff_margin=33.0,
         pseudopotential_library=library,
+        potcar_variants=parse_potcar_variants(
+            a.parameter("potcar_variants", None) or a.setting("vasp.potcar_variants", None)
+        ),
         parallel_tag=a.parameter("parallel_tag", None) or None,
         parallel_value=None if parallel_value is None else int(parallel_value),
         # The template's own EDIFF/EDIFFG are kept rather than derived; the job's tags win over both.
@@ -409,7 +426,13 @@ def run_stage(a: Attempt, name: str) -> None:
             a.fail(code, message, details=details)
             return
     try:
-        report = run_vasp(argv, directory=a.workdir, timeout=a.parameter("timeout", 86400.0))
+        report = run_vasp(
+            argv,
+            directory=a.workdir,
+            timeout=a.parameter("timeout", 86400.0),
+            policy=a.parameter("diagnostic_policy", None) or a.setting("vasp.diagnostic_policy", None),
+            checkers=read_checker_specs(a.parameter("checkers", ""), base=a.payload),
+        )
     except OSError as exception:
         a.fail("vasp.failed", f"could not run VASP at all: {exception}")
         return

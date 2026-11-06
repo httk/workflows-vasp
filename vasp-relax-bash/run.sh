@@ -31,7 +31,7 @@ _vasp_templates=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/templates
 
 # Stage the structure and POTCAR of the payload, and go on to the first stage.
 step_prepare() {
-    local poscar potcar expected
+    local poscar potcar expected variants
     poscar=$HTTK_WORKFLOW_JOB_DIR/$(httk_workflow_parameter poscar files/POSCAR)
     if [ ! -f "$poscar" ]; then
         expected=$(_vasp_json_string poscar "$poscar") || return 0
@@ -45,6 +45,13 @@ step_prepare() {
     potcar=$HTTK_WORKFLOW_JOB_DIR/$(httk_workflow_parameter potcar files/POTCAR)
     if [ -f "$potcar" ]; then
         cp "$potcar" POTCAR
+        variants=$(httk_workflow_parameter potcar_variants '')
+        if [ -z "$variants" ] || [ "$variants" = null ]; then
+            variants=$(httk_workflow_setting vasp.potcar_variants '')
+        fi
+        if [ -n "$variants" ] && [ "$variants" != null ]; then
+            httk_workflow_runlog_note "potcar_variants is not used: this payload supplies its own POTCAR"
+        fi
     fi
     httk_workflow_advance stage --state stage=preprerelax --state relax_round=0
 }
@@ -53,7 +60,7 @@ step_prepare() {
 # VASP. The preparation options are written beside the attempt, not into the
 # workdir, so the workdir holds exactly the calculation.
 step_stage() {
-    local name label template density library tags tag value margin options parallel_tag parallel_value expected centering
+    local name label template density library variants tags tag value margin options parallel_tag parallel_value expected centering
     name=$(httk_workflow_state_get stage)
     label=$name
     if [ "$name" = relax ]; then
@@ -108,8 +115,19 @@ step_stage() {
     done
     # String values are encoded first, so a value this runner cannot encode fails the step here.
     centering=$(_vasp_json_string centering "$(httk_workflow_parameter centering Monkhorst-Pack)") || return 0
+    variants=
     if [ -n "$library" ]; then
         library=$(_vasp_json_string pseudopotential_library "$library") || return 0
+        # The job parameter wins over the workspace setting; string form only.
+        variants=$(httk_workflow_parameter potcar_variants '')
+        if [ -z "$variants" ] || [ "$variants" = null ]; then
+            variants=$(httk_workflow_setting vasp.potcar_variants '')
+        fi
+        if [ -n "$variants" ] && [ "$variants" != null ]; then
+            variants=$(_vasp_json_string potcar_variants "$variants") || return 0
+        else
+            variants=
+        fi
     fi
     parallel_tag=$(httk_workflow_parameter parallel_tag '')
     if [ "$parallel_tag" = null ]; then
@@ -125,6 +143,9 @@ step_stage() {
             "$density" "$centering" "$(httk_workflow_parameter accuracy_per_atom 0.001)" "$margin" "$tags"
         if [ -n "$library" ]; then
             printf ', "pseudopotential_library": %s' "$library"
+        fi
+        if [ -n "$variants" ]; then
+            printf ', "potcar_variants": %s' "$variants"
         fi
         if [ -n "$parallel_tag" ]; then
             printf ', "parallel_tag": %s, "parallel_value": %s' "$parallel_tag" "$parallel_value"
@@ -151,7 +172,8 @@ step_stage() {
 # stage when it completed or only ran out of ionic steps, another attempt when a
 # remedy was applied, and vasp.failed when the reviewed ladder has nothing left to try.
 step_run() {
-    local command timeout status classification energy applied maximum decision policy problem message amplitude
+    local command timeout status classification energy applied maximum decision policy problem message amplitude diagnostics checker
+    local -a supervision=() checkers=()
     command=$(httk_workflow_setting vasp.command "$(httk_workflow_parameter vasp_command '')")
     if [ -z "$command" ]; then
         httk_workflow_fail vasp.command_missing \
@@ -159,11 +181,23 @@ step_run() {
         return
     fi
     timeout=$(httk_workflow_parameter timeout 86400)
+    # The job parameter wins over the workspace setting; string forms only.
+    diagnostics=$(httk_workflow_parameter diagnostic_policy '')
+    if [ -z "$diagnostics" ] || [ "$diagnostics" = null ]; then
+        diagnostics=$(httk_workflow_setting vasp.diagnostic_policy '')
+    fi
+    if [ -n "$diagnostics" ] && [ "$diagnostics" != null ]; then
+        supervision+=(--policy "$diagnostics")
+    fi
+    read -ra checkers <<<"$(httk_workflow_parameter checkers '')"
+    for checker in ${checkers[@]+"${checkers[@]}"}; do
+        supervision+=(--checker "$HTTK_WORKFLOW_JOB_DIR/$checker")
+    done
     httk_vasp_preclean --directory . --keep WAVECAR --keep CHGCAR --keep CHG >/dev/null
     status=0
     # Deliberately unquoted: the resolved VASP command is one argv string, not one path.
     # shellcheck disable=SC2086
-    httk_vasp_run --directory . --timeout "$timeout" --report vasp-run-report.json -- $command || status=$?
+    httk_vasp_run --directory . --timeout "$timeout" --report vasp-run-report.json ${supervision[@]+"${supervision[@]}"} -- $command || status=$?
     case $status in
         0) classification=completed ;;
         20) classification=diagnosed_stop ;;

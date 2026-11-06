@@ -103,7 +103,9 @@ with the same `PREC`, `ENCUT` and `ENAUG` (compared case-insensitively, an
 absent tag equal only to an absent one), and becomes `ICHARG = 2` otherwise.
 So `relax1` starts from atomic charges, since `prerelax` ran at `PREC = Normal`
 and the default cutoff, while later relax rounds and the static stage reuse
-the density.
+the density. `vasp-static` and `vasp-relax-ions` have no earlier stage: a
+template's `ICHARG = 1` stays only when the payload supplies a non-empty
+`files/CHGCAR` (the `chgcar` parameter), and becomes `ICHARG = 2` otherwise.
 
 ### Changing INCAR tags
 
@@ -380,7 +382,10 @@ relaxations use 2). `ISIF`, `IBRION` and `NSW` in `incar_tags` fail
 remedy (`scale_lattice` is excluded). A run that uses up its `NSW` ionic steps
 is not accepted, unlike in `vasp-relax`'s pre-stages: the ladder continues it
 from its CONTCAR (`contcar_to_poscar`), once, and a second such run fails
-`vasp.failed`. The outputs are `relaxed_structure` (the CONTCAR) and
+`vasp.failed`. The template starts from atomic charges (`ICHARG = 2`); a
+payload `files/CHGCAR` is read with `incar_tags={"ICHARG": 1}`, under the rules
+of the `chgcar` parameter.
+The outputs are `relaxed_structure` (the CONTCAR) and
 `total_energy`. It is the deformation leaf of the coming `vasp.elastic` and
 `vasp.eos`, which call it once per strained cell with one `kpoint_grid` and one
 `excluded_remedies` for all of them.
@@ -972,8 +977,35 @@ strings, so the Bash runner and the Python runners read one contract.
 * `potcar` (default `files/POTCAR`) — a pre-assembled POTCAR. When the file
   is absent and `pseudopotential_library` is set, the POTCAR is assembled per
   species and a provenance record is written next to it.
+* `chgcar` and `wavecar` (default `files/CHGCAR` and `files/WAVECAR`,
+  `vasp-static` and `vasp-relax-ions` only) — a starting charge density and
+  wavefunction, copied into the workdir when the file is there (the templates'
+  `ISTART = 0` ignores a WAVECAR unless `incar_tags` sets `ISTART`). A
+  template's `ICHARG = 1` then reads the density; without a non-empty CHGCAR it becomes
+  `ICHARG = 2`. An `ICHARG` in `incar_tags` is never changed, not by a remedy
+  either, and one of 1 or 11 without a non-empty CHGCAR fails
+  `vasp.input_missing`. A `scale_lattice` remedy changes the cell, and with it
+  the grid a supplied CHGCAR was written on: `vasp-relax-ions` never applies it,
+  and a `vasp-static` job reading a supplied density should add `scale_lattice`
+  to `excluded_remedies`.
+* `scf_incar` (default `files/scf-INCAR`, `vasp-static` and `vasp-relax-ions`
+  only) — the INCAR the CHGCAR was computed with. When the file is there, a
+  `PREC`, `ENCUT` or `ENAUG` of the prepared INCAR that differs from it
+  (compared case-insensitively, an absent tag equal only to an absent one)
+  fails `vasp.charge_density_incompatible`, and a missing CHGCAR fails
+  `vasp.input_missing`. Without it the density is used unchecked.
 * `pseudopotential_library` (default none) — root of a VASP pseudopotential
   library, one directory per variant.
+* `potcar_variants` (default none, else the workspace setting
+  `vasp.potcar_variants`) — pins species to library variants instead of the
+  default suffix order: `"Hf=Hf_pv Zr=Zr_sv"`, or a dictionary in the Python
+  runners (string form only in `vasp-relax-bash`). The provenance record marks a
+  pinned species `override: true`. A malformed value fails `vasp.input_invalid`.
+  A variant missing from the library fails `vasp.input_missing` in
+  `vasp-general`; the other runners end with a runner error naming the missing
+  variant. With a supplied POTCAR the variants are not used, and the job log
+  says so; the composites pass a supplied POTCAR to their children, so the same
+  applies there.
 * `kpoint_density` (default `20.0`), `centering` (default `Monkhorst-Pack`),
   `accuracy_per_atom` (default `0.001`) — passed to
   `httk.codes.vasp.inputs.VaspPreparationOptions`. `kpoint_density` is the
@@ -1012,6 +1044,34 @@ strings, so the Bash runner and the Python runners read one contract.
   runner plans with, so a group with its own reviewed practice registers a
   policy with `httk.codes.vasp.register_remedy_policy` and names it here
   instead of editing a runner.
+* `diagnostic_policy` (default none, else the workspace setting
+  `vasp.diagnostic_policy`) — what a live VASP check does per diagnostic code:
+  `"brmix=stop zpotrf=continue"`, or a dictionary in the Python runners. `stop`
+  ends the run, `continue` keeps the diagnostic but lets VASP go on, and `ignore`
+  drops it, so the remedy ladder never sees it either. It covers the live checks
+  only: a nonconverged or incomplete calculation is still diagnosed after the
+  run. An unknown code or action fails `vasp.input_invalid`.
+* `checkers` (default empty) — extra v1-style executable checkers, as
+  space-separated paths of `httk-workflow-checker-spec` JSON files in the
+  payload. A checker that emits a built-in code gets that code's remedy; to swap
+  a built-in check, `ignore` its code and add your own. For example, ship
+  `files/brmix-checker.json` beside `files/brmix.awk` (an `argv` element
+  starting with `./` is resolved against the spec's directory, others are kept
+  as written):
+  `{"format": "httk-workflow-checker-spec", "format_version": 2, "argv": ["awk",
+  "-f", "./brmix.awk"], "sources": [{"path": "OUTCAR"}]}`, and set
+  `checkers = "files/brmix-checker.json"`. A missing or invalid spec fails
+  `vasp.input_invalid`. Inside the workdir a checker may follow only VASP's own
+  output files (`OUTCAR OSZICAR vasp.out vasp.err REPORT XDATCAR PCDAT EIGENVAL
+  DOSCAR PROCAR IBZKPT vasprun.xml ML_LOGFILE`, by plain name, no symlinks),
+  which are removed before each VASP run; a source outside the workdir is
+  followed and never touched; any other source fails `vasp.input_invalid`. The
+  built-in checks scan only OUTCAR, OSZICAR, stdout and stderr. The composites (`vasp-elastic`, `vasp-eos`,
+  `vasp-phonons`, `vasp-full-characterization`, `vasp-relax-static-hse`) forward
+  `potcar_variants` and `diagnostic_policy` to their children but refuse
+  `checkers` with `vasp.input_invalid`: set them on leaf jobs. The diagnostic
+  codes and the checker protocol are in *httk-workflow-vasp*'s helper
+  documentation, section "Supervision".
 * `rattle_amplitude` (default `0.0`) — when positive, the POSCAR is rattled by
   this amplitude after every applied remedy, with a seed derived from the
   attempt, so two retries never repeat one structure. `vasp-band-structure`,

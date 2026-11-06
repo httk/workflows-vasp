@@ -54,6 +54,8 @@ SHARED = (
     "timeout",
     "vasp_command",
     "remedy_policy",
+    "potcar_variants",
+    "diagnostic_policy",
 )
 # The ladder rungs that would change the numerical setting of one child against the others.
 EXCLUDED_REMEDIES = "bump_kpoints equal_kpoints centering incar.ISMEAR incar.SIGMA incar.LREAL scale_lattice"
@@ -243,6 +245,12 @@ def inconsistency(records: list[dict]) -> dict | None:
 def start(a: Attempt) -> None:
     """Check the parameters, and call the tight relaxation or take the input structure as the reference."""
 
+    if a.parameter("checkers", None):
+        a.fail(
+            "vasp.input_invalid",
+            "checkers are set on the leaf VASP jobs, not on this composite: its children do not get the spec files",
+        )
+        return
     try:
         plan = settings(a)
     except ValueError as exception:

@@ -271,6 +271,7 @@ def test_a_failed_volume_child_fails_the_job_by_its_label(tmp_path: Path, monkey
         ({"number_of_frames": 3}, _POSCAR, "vasp.input_invalid"),
         ({"linear_strain": [0.01, 0.05]}, _POSCAR, "vasp.input_invalid"),
         ({"relax": "perhaps"}, _POSCAR, "vasp.input_invalid"),
+        ({"checkers": "files/checker.json"}, _POSCAR, "vasp.input_invalid"),
         ({"relax": False}, _CARTESIAN, "vasp.input_unsupported"),
     ),
 )
