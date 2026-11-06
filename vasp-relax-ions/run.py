@@ -32,11 +32,13 @@ by git URI (e.g. ``git+https://github.com/httk/workflows-vasp#vasp-relax-ions``)
 with ``--workflow-dir``, or copy the package directory and edit it. The runner
 file alone, without its ``templates/``, fails with ``vasp.template_missing``.
 
-A payload ``files/CHGCAR`` (and ``files/WAVECAR``) is staged under the rules of
-``vasp-static``. The template starts from atomic charges (``ICHARG = 2``), so the
-density is read with ``incar_tags = {"ICHARG": 1}``, which is never changed and
-fails ``vasp.input_missing`` without a CHGCAR; a template edited to
-``ICHARG = 1`` becomes ``ICHARG = 2`` without one, and a payload
+A payload ``files/CHGCAR`` and ``files/WAVECAR`` are staged under the rules of
+``vasp-static``, so a supplied WAVECAR is read (``ISTART = 1``). The template
+starts from atomic charges (``ICHARG = 2``) even then: ``incar_tags =
+{"ICHARG": 0}`` builds the starting density from the WAVECAR instead, and
+``{"ICHARG": 1}`` reads the CHGCAR. An ``ICHARG`` from ``incar_tags`` is never
+changed, and 1 without a CHGCAR fails ``vasp.input_missing``; a template edited to
+``ICHARG = 1`` falls back without one as in ``vasp-static``, and a payload
 ``files/scf-INCAR`` must agree on ``PREC``, ``ENCUT`` and ``ENAUG``.
 """
 
@@ -120,10 +122,14 @@ def pinned_icharg(a: Attempt) -> set[str]:
 
 
 def stage_charge_density(a: Attempt, explicit: dict[str, object]) -> bool:
-    """Settle ``ICHARG`` against the staged ``CHGCAR`` and check the density, after input preparation.
+    """Settle ``ISTART`` and ``ICHARG`` against the staged ``WAVECAR`` and ``CHGCAR``, after input preparation.
 
-    An ``ICHARG`` from *explicit* (the job's ``incar_tags``) is never changed; the
-    template's ``ICHARG = 1`` becomes 2 without a staged ``CHGCAR`` to read.
+    An ``ISTART`` or ``ICHARG`` from *explicit* (the job's ``incar_tags``) is never
+    changed. Otherwise a non-empty staged ``WAVECAR`` turns an ``ISTART`` of 0 (or
+    none) into 1 and keeps a template's 2 or 3, and without one a nonzero ``ISTART``
+    becomes 0. The template's ``ICHARG = 1`` becomes 0 without a staged ``CHGCAR``
+    when the wavefunctions are read, and 2 when not; its ``ICHARG = 0`` becomes 2
+    when they are not read.
 
     :param a: The attempt whose workdir holds the prepared inputs.
     :param explicit: The job's ``incar_tags``.
@@ -133,9 +139,28 @@ def stage_charge_density(a: Attempt, explicit: dict[str, object]) -> bool:
     incar = a.workdir / "INCAR"
     chgcar = a.workdir / "CHGCAR"
     has_density = chgcar.is_file() and chgcar.stat().st_size > 0
+    wavecar = a.workdir / "WAVECAR"
+    has_wavefunctions = wavecar.is_file() and wavecar.stat().st_size > 0
     named = a.parameter("chgcar", "files/CHGCAR")
     expected = {"expected": str(a.payload / named)}
     requested = {str(tag).strip().upper(): value for tag, value in explicit.items()}
+    if "ISTART" in requested:
+        value = requested["ISTART"]
+        if str(value).strip() in ("1", "2", "3") and not has_wavefunctions:
+            orbitals = a.parameter("wavecar", "files/WAVECAR")
+            a.fail(
+                "vasp.input_missing",
+                f"ISTART = {str(value).strip()} from incar_tags reads wavefunctions, but this payload has no non-empty {orbitals}",
+                details={"ISTART": value, "expected": str(a.payload / orbitals)},
+            )
+            return False
+    else:
+        istart = read_incar(incar).get("ISTART")
+        if has_wavefunctions and istart in (None, "0"):
+            update_incar({"ISTART": 1}, incar)
+        elif not has_wavefunctions and istart not in (None, "0"):
+            update_incar({"ISTART": 0}, incar)
+    reads_wavefunctions = has_wavefunctions and read_incar(incar).get("ISTART", "0") != "0"
     if "ICHARG" in requested:
         value = requested["ICHARG"]
         if str(value).strip() in ("1", "11") and not has_density:
@@ -145,8 +170,12 @@ def stage_charge_density(a: Attempt, explicit: dict[str, object]) -> bool:
                 details={"ICHARG": value, **expected},
             )
             return False
-    elif read_incar(incar).get("ICHARG") == "1" and not has_density:
-        update_incar({"ICHARG": 2}, incar)
+    else:
+        current = read_incar(incar).get("ICHARG")
+        if current == "1" and not has_density:
+            update_incar({"ICHARG": 0 if reads_wavefunctions else 2}, incar)
+        elif current == "0" and not reads_wavefunctions:
+            update_incar({"ICHARG": 2}, incar)
     scf_incar = a.payload / a.parameter("scf_incar", "files/scf-INCAR")
     if not scf_incar.is_file():
         return True

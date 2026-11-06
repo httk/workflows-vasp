@@ -1064,6 +1064,74 @@ def test_a_supplied_charge_density_is_staged_and_read(
     assert (run["tags"]["ICHARG"], run["CHGCAR"]) == ("1", True)
 
 
+@pytest.mark.parametrize(
+    ("directory", "parameters", "extra_files", "expected"),
+    [
+        # Without a density the template's ICHARG = 1 builds it from the read wavefunctions.
+        ("vasp-static", {}, {"WAVECAR": "orbitals\n"}, ("1", "0")),
+        ("vasp-static", {}, {"WAVECAR": "orbitals\n", "CHGCAR": "density\n"}, ("1", "1")),
+        ("vasp-static", {"incar_tags": {"ISTART": 0}}, {"WAVECAR": "orbitals\n"}, ("0", "2")),
+        ("vasp-static", {}, {"WAVECAR": ""}, ("0", "2")),
+        ("vasp-static", {"incar_tags": {"ISTART": 1}}, {"WAVECAR": "orbitals\n"}, ("1", "0")),
+        # An override that would read wavefunctions without a WAVECAR starts afresh from atomic charges.
+        (
+            "vasp-static",
+            {},
+            {
+                "INCAR.static": _template("vasp-static", "INCAR.static")
+                .replace("\nISTART=0", "\nISTART=1")
+                .replace("\nICHARG=1", "\nICHARG=0")
+            },
+            ("0", "2"),
+        ),
+        # vasp-relax-ions' template starts from atomic charges even when it reads the wavefunctions.
+        ("vasp-relax-ions", {}, {"WAVECAR": "orbitals\n"}, ("1", "2")),
+    ],
+)
+def test_a_supplied_wavecar_is_read(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    directory: str,
+    parameters: dict[str, object],
+    extra_files: dict[str, str],
+    expected: tuple[str, str],
+) -> None:
+    workspace, job_id = _campaign(
+        tmp_path / "c", monkeypatch, directory, parameters=parameters, extra_files=extra_files
+    )
+
+    kind, payload = _payload_of(workspace, job_id)
+    assert kind == "succeeded"
+    (run,) = _runs(payload / "run")
+    assert (run["tags"]["ISTART"], run["tags"]["ICHARG"]) == expected
+
+
+@pytest.mark.parametrize("istart", [1, 2, 3])
+def test_an_istart_from_incar_tags_needs_a_wavecar(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, istart: int
+) -> None:
+    workspace, job_id = _campaign(
+        tmp_path / "c", monkeypatch, "vasp-static", parameters={"incar_tags": {"istart": istart}}
+    )
+    assert _failure(workspace, job_id)["code"] == "vasp.input_missing"
+
+
+def test_a_supplied_wavecar_is_read_after_a_remedy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The fexcf ladder changes ICHARG, never ISTART.
+    workspace, job_id = _campaign(
+        tmp_path / "c",
+        monkeypatch,
+        "vasp-static",
+        extra_files={"WAVECAR": "orbitals\n"},
+        fail_once=True,
+        fake={"failure": "FEXCF: supplied exchange-correlation table"},
+    )
+
+    kind, payload = _payload_of(workspace, job_id)
+    assert kind == "succeeded"
+    assert [run["tags"]["ISTART"] for run in _runs(payload / "run")] == ["1", "1"]
+
+
 def test_an_icharg_from_incar_tags_is_kept_and_needs_a_charge_density(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

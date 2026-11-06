@@ -979,11 +979,17 @@ strings, so the Bash runner and the Python runners read one contract.
   species and a provenance record is written next to it.
 * `chgcar` and `wavecar` (default `files/CHGCAR` and `files/WAVECAR`,
   `vasp-static` and `vasp-relax-ions` only) — a starting charge density and
-  wavefunction, copied into the workdir when the file is there (the templates'
-  `ISTART = 0` ignores a WAVECAR unless `incar_tags` sets `ISTART`). A
+  wavefunction, copied into the workdir when the file is there. A non-empty
+  WAVECAR turns an `ISTART` of 0 (or none) into 1 and keeps a template's 2 or 3;
+  without one a nonzero `ISTART` becomes 0. A
   template's `ICHARG = 1` then reads the density; without a non-empty CHGCAR it becomes
-  `ICHARG = 2`. An `ICHARG` in `incar_tags` is never changed, not by a remedy
-  either, and one of 1 or 11 without a non-empty CHGCAR fails
+  `ICHARG = 0` when the WAVECAR is read (the density from its wavefunctions) and
+  `ICHARG = 2` otherwise, and a template's `ICHARG = 0` becomes 2 when no WAVECAR
+  is read. The supplied files seed the first VASP run; a rerun after a remedy
+  keeps the same INCAR and reads whatever the previous run left in them. An
+  `ISTART` or `ICHARG` in `incar_tags` is never changed, not by a remedy
+  either; an `ISTART` of 1, 2 or 3 without a non-empty
+  WAVECAR, or an `ICHARG` of 1 or 11 without a non-empty CHGCAR, fails
   `vasp.input_missing`. A `scale_lattice` remedy changes the cell, and with it
   the grid a supplied CHGCAR was written on: `vasp-relax-ions` never applies it,
   and a `vasp-static` job reading a supplied density should add `scale_lattice`
