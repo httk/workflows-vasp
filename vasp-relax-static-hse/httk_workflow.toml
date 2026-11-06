@@ -3,7 +3,7 @@ name = "vasp.relax-static-hse"
 description = "relax with HSE from a PBE-relaxed start: call vasp.relax-static-coarse once with PBE (unless a PBE-relaxed structure is given) and once with HSE from its result, seeding the HSE stage with the PBE WAVECARs, meshes and optionally its BFGS Hessian"
 declaration_uri = "https://raw.githubusercontent.com/httk/workflows-vasp/refs/tags/wf-decl-v0.2.0/vasp-relax-static-hse/declaration.json"
 declaration_file = "declaration.json"
-requires = ["httk-workflow>=2.1.1", "httk-workflow-vasp>=0.1.0", "httk-atomistic>=2.1.2"]
+requires = ["httk-workflow>=2.1.1", "httk-workflow-vasp>=0.2.0", "httk-atomistic>=2.1.2"]
 
 [workflow.runner]
 entry = "run.py"

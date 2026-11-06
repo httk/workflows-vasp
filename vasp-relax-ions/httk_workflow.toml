@@ -3,7 +3,7 @@ name = "vasp.relax-ions"
 description = "one accurate ionic relaxation of one structure in its fixed cell (ISIF = 2) or at fixed volume (ISIF = 4), from an editable INCAR template, with the reviewed remedy ladder"
 declaration_uri = "https://raw.githubusercontent.com/httk/workflows-vasp/refs/tags/wf-decl-v0.3.0/vasp-relax-ions/declaration.json"
 declaration_file = "declaration.json"
-requires = ["httk-workflow>=2.1.1", "httk-workflow-vasp>=0.1.0", "httk-atomistic>=2.1.2"]
+requires = ["httk-workflow>=2.1.1", "httk-workflow-vasp>=0.2.0", "httk-atomistic>=2.1.2"]
 settings = ["vasp.command", "vasp.pseudo_library"]
 
 [workflow.runner]

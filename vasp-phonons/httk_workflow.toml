@@ -3,7 +3,7 @@ name = "vasp.phonons"
 description = "harmonic phonons of one structure with phonopy: an optional tight relaxation, one single point per displaced supercell (vasp.static), then force constants, band structure, density of states and thermodynamics, with an optional non-analytical correction"
 declaration_uri = "https://raw.githubusercontent.com/httk/workflows-vasp/refs/tags/wf-decl-v0.3.0/vasp-phonons/declaration.json"
 declaration_file = "declaration.json"
-requires = ["httk-workflow>=2.1.1", "httk-workflow-vasp>=0.1.0", "httk-atomistic>=2.1.2", "httk-analyse>=2.1.0", "phonopy>=2.20", "spglib>=2.0"]
+requires = ["httk-workflow>=2.1.1", "httk-workflow-vasp>=0.2.0", "httk-atomistic>=2.1.2", "httk-analyse>=2.1.0", "phonopy>=2.20", "spglib>=2.0"]
 
 [workflow.runner]
 entry = "run.py"

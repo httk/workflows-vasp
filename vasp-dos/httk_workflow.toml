@@ -3,7 +3,7 @@ name = "vasp.dos"
 description = "the electronic density of states and band gaps of one structure: a self-consistent run (or a given charge density), then a non-self-consistent run on a dense uniform mesh, from editable INCAR templates"
 declaration_uri = "https://raw.githubusercontent.com/httk/workflows-vasp/refs/tags/wf-decl-v0.3.0/vasp-dos/declaration.json"
 declaration_file = "declaration.json"
-requires = ["httk-workflow>=2.1.1", "httk-workflow-vasp>=0.1.0", "httk-atomistic>=2.1.2", "httk-analyse>=2.1.0"]
+requires = ["httk-workflow>=2.1.1", "httk-workflow-vasp>=0.2.0", "httk-atomistic>=2.1.2", "httk-analyse>=2.1.0"]
 settings = ["vasp.command", "vasp.pseudo_library"]
 
 [workflow.runner]
