@@ -62,7 +62,7 @@ its package's `templates/` directory:
 | `scf` | `INCAR.scf` | `vasp-band-structure`'s self-consistent stage: `INCAR.static` from atomic charges (`ICHARG = 2`), writing the charge density (`LCHARG = .TRUE.`). |
 | `bands` | `INCAR.bands` | `vasp-band-structure`'s non-self-consistent band stage (`ICHARG = 11`, `ISMEAR = 0`), with the density-defining settings of `INCAR.scf`. |
 | `nscf` | `INCAR.nscf` | `vasp-dos`' non-self-consistent DOS stage: its `INCAR.scf` (a copy of `vasp-band-structure`'s) with `ICHARG = 11`, `LCHARG = .FALSE.`, `ISMEAR = -5`, `LORBIT = 11` and `NEDOS = 3001` (an httk choice), as atomate2's `NonSCFSetGenerator` in uniform mode. |
-| `relaxions` | `INCAR.relaxions` | `vasp-relax-ions`' fixed-cell relaxation (`ISIF = 2`, `IBRION = 2`, `NSW = 99`): the electronic settings of `INCAR.relax` made tight as atomate2's `ElasticRelaxMaker` (`EDIFF = 1E-7`, `EDIFFG = -0.001`, `LREAL = .FALSE.`), with `ISMEAR = 0`, `SIGMA = 0.05`, from atomic charges, writing no CHGCAR or WAVECAR; `NELM = 100` is an httk choice. |
+| `relaxions` | `INCAR.relaxions` | `vasp-relax-ions`' fixed-cell relaxation (`ISIF = 2`, `IBRION = 2`, `NSW = 99`): the electronic settings of `INCAR.relax` made tight as atomate2's `ElasticRelaxMaker` (`EDIFF = 1E-7`, `EDIFFG = -0.001`, `LREAL = .FALSE.`), with `ISMEAR = 0`, `SIGMA = 0.05`, from atomic charges unless a CHGCAR or WAVECAR is supplied, writing no CHGCAR or WAVECAR; `NELM = 100` is an httk choice. |
 | `dielectric` | `INCAR.dielectric` | `vasp-dielectric`'s perturbation-theory run (`IBRION = 8`, `LEPSILON`, `LPEAD`, `NSW = 1`, `ISMEAR = -5`, `LREAL = .FALSE.`, `EDIFF = 1E-7`): `INCAR.static`'s electronic settings with atomate2's `lepsilon` choices; insulators only. |
 | `phonon` | `INCAR.phonon` | `vasp-phonons`' displaced-supercell single points: `INCAR.static` with atomate2 `PhononDisplacementMaker`'s `EDIFF = 1E-7`, `LREAL = .FALSE.` and `LCHARG = .FALSE.`, and the httk choices `ISMEAR = 0`, `SIGMA = 0.05`, `ADDGRID = .TRUE.`, from atomic charges. |
 
@@ -103,18 +103,21 @@ with the same `PREC`, `ENCUT` and `ENAUG` (compared case-insensitively, an
 absent tag equal only to an absent one), and becomes `ICHARG = 2` otherwise.
 So `relax1` starts from atomic charges, since `prerelax` ran at `PREC = Normal`
 and the default cutoff, while later relax rounds and the static stage reuse
-the density. `vasp-static` and `vasp-relax-ions` have no earlier stage: a
-template's `ICHARG = 1` stays only when the payload supplies a non-empty
-`files/CHGCAR` (the `chgcar` parameter), and becomes `ICHARG = 2` otherwise.
+the density. `vasp-static`, `vasp-relax-ions` and `vasp-dielectric` have no
+earlier stage: their starting density follows the rule of the `chgcar` and
+`wavecar` parameters.
 
 ### Changing INCAR tags
 
 There are several ways to change individual INCAR settings:
 
 * `incar_tags` (a job parameter) — tags applied to every stage, winning over
-  the templates and every derived value. A `null` value removes the tag, the
-  template's line included, and keeps the runner from deriving one, so VASP
-  uses its own default: `httk job new ... --parameter 'incar_tags={"LREAL": null}'`
+  the templates and every derived value, with two exceptions: `vasp-relax`,
+  `vasp-relax-bash` and `vasp-relax-static` still change `ICHARG` by their
+  charge-density grid rule and re-applied remedies, and
+  `vasp-relax-static-coarse` sets `ISTART` and `ICHARG` itself. A `null`
+  value removes the tag, the template's line included, and keeps the runner
+  from deriving one, so VASP uses its own default: `httk job new ... --parameter 'incar_tags={"LREAL": null}'`
   runs without the template's `LREAL`, i.e. with VASP's `.FALSE.`.
 * `files/INCAR.<stage>` (a payload file of one job, e.g. `files/INCAR.relax`) —
   replaces that stage's template wholesale for that job.
@@ -334,12 +337,17 @@ claim it until the driver is installed in the workspace.
 
 - `mode = "no_pbe"` (default): child `pbe` runs the driver on the input
   structure with the driver's own (PBE) templates; then child `hse` runs it
-  from the PBE result's `relax/CONTCAR`.
+  from the PBE result's `relax/CONTCAR`. Optional seeds in the payload:
+  `files/WAVECAR.pbe` and `files/WAVECAR.pbe.final` go to the `pbe` child as
+  its `coarse_wavecar` / `final_wavecar`, staged as they are (VASP's output
+  says whether they were read); the `hse` child gets the PBE child's own.
 - `mode = "start_from_pbe"`: the input structure is PBE-relaxed and only the
   `hse` child runs. `pbe_provenance` (where the structure came from) is
   required, or the job fails with `vasp.pbe_provenance_missing`. Optional
   seeds in the payload: `files/WAVECAR.pbe`, `files/WAVECAR.pbe.final` (used
   only when the HSE stage's mesh of that kind is set), `files/hessian.pbe.json`.
+
+A plain `files/CHGCAR` or `files/WAVECAR` is not used; the job logs a note.
 
 The HSE child gets the PBE child's coarse and final meshes unless the job sets
 them, so the WAVECARs fit; with `seed_wavecar` (default true) the PBE child's
@@ -382,9 +390,9 @@ relaxations use 2). `ISIF`, `IBRION` and `NSW` in `incar_tags` fail
 remedy (`scale_lattice` is excluded). A run that uses up its `NSW` ionic steps
 is not accepted, unlike in `vasp-relax`'s pre-stages: the ladder continues it
 from its CONTCAR (`contcar_to_poscar`), once, and a second such run fails
-`vasp.failed`. The template starts from atomic charges (`ICHARG = 2`); a
-payload `files/CHGCAR` is read with `incar_tags={"ICHARG": 1}`, under the rules
-of the `chgcar` parameter.
+`vasp.failed`. The template starts from atomic charges (`ICHARG = 2`) unless
+a payload `files/CHGCAR` or `files/WAVECAR` is supplied, which is read under
+the rule of the `chgcar` and `wavecar` parameters.
 The outputs are `relaxed_structure` (the CONTCAR) and
 `total_energy`. It is the deformation leaf of the coming `vasp.elastic` and
 `vasp.eos`, which call it once per strained cell with one `kpoint_grid` and one
@@ -409,12 +417,12 @@ and writes `band_edges.json`. Remedies, the shared remedy history, the
 applied, nor, in the nscf stage, an `ICHARG` change.
 
 A given density skips the scf stage: a payload `files/CHGCAR` with
-`files/scf-INCAR`, the INCAR it was computed with (and optionally
-`files/scf-OUTCAR`, kept as `scf/OUTCAR` for provenance), as
+`files/scf-INCAR`, the INCAR it was computed with (the `chgcar` and
+`scf_incar` parameters; optionally `files/scf-OUTCAR`, kept as `scf/OUTCAR` for provenance), as
 `vasp.full-characterization` passes its band-structure child's. The nscf INCAR
 is checked against `scf-INCAR` in the density-defining tags before the run.
 No `total_energy` is collected then: that energy belongs to the job that
-computed the density.
+computed the density. A payload `files/WAVECAR` is not used; the job logs a note.
 
 The band edges come from `httk.analyse.matsci.electronic.band_edges` with
 occupations per state on 0..1, `occupation_tolerance` (default `1e-3`) and the
@@ -458,7 +466,8 @@ effective charges and the piezoelectric tensor. **Insulators only.** The
 template `INCAR.dielectric` has the electronic settings of `INCAR.static` plus
 atomate2's `StaticSetGenerator(lepsilon=True)` choices (`IBRION = 8`,
 `LEPSILON`, `LPEAD`, `NSW = 1`, `ISMEAR = -5`, `LREAL = .FALSE.`) and the *httk*
-choices `EDIFF = 1E-7`, atomic starting charges (`ICHARG = 2`), and no WAVECAR or CHGCAR.
+choices `EDIFF = 1E-7`, atomic starting charges (`ICHARG = 2`) unless a CHGCAR
+or WAVECAR is supplied (the `chgcar` and `wavecar` parameters), and no WAVECAR or CHGCAR written.
 
 `incar_tags` may not set `IBRION`, `LEPSILON`, `NCORE` or `NPAR`
 (`vasp.unsupported_incar_tag`), and `parallel_tag` may not be `NPAR` or `NCORE`
@@ -978,24 +987,25 @@ strings, so the Bash runner and the Python runners read one contract.
   is absent and `pseudopotential_library` is set, the POTCAR is assembled per
   species and a provenance record is written next to it.
 * `chgcar` and `wavecar` (default `files/CHGCAR` and `files/WAVECAR`,
-  `vasp-static` and `vasp-relax-ions` only) — a starting charge density and
-  wavefunction, copied into the workdir when the file is there. A non-empty
-  WAVECAR turns an `ISTART` of 0 (or none) into 1 and keeps a template's 2 or 3;
-  without one a nonzero `ISTART` becomes 0. A
-  template's `ICHARG = 1` then reads the density; without a non-empty CHGCAR it becomes
-  `ICHARG = 0` when the WAVECAR is read (the density from its wavefunctions) and
-  `ICHARG = 2` otherwise, and a template's `ICHARG = 0` becomes 2 when no WAVECAR
-  is read. The supplied files seed the first VASP run; a rerun after a remedy
-  keeps the same INCAR and reads whatever the previous run left in them. An
-  `ISTART` or `ICHARG` in `incar_tags` is never changed, not by a remedy
-  either; an `ISTART` of 1, 2 or 3 without a non-empty
-  WAVECAR, or an `ICHARG` of 1 or 11 without a non-empty CHGCAR, fails
-  `vasp.input_missing`. A `scale_lattice` remedy changes the cell, and with it
-  the grid a supplied CHGCAR was written on: `vasp-relax-ions` never applies it,
-  and a `vasp-static` job reading a supplied density should add `scale_lattice`
-  to `excluded_remedies`.
-* `scf_incar` (default `files/scf-INCAR`, `vasp-static` and `vasp-relax-ions`
-  only) — the INCAR the CHGCAR was computed with. When the file is there, a
+  `vasp-static`, `vasp-relax-ions` and `vasp-dielectric` only) — a starting
+  charge density and wavefunction, copied into the workdir when the file is
+  there. A non-empty WAVECAR turns an `ISTART` of 0 (or none) into 1 and keeps
+  a template's 2 or 3; without one a nonzero `ISTART` becomes 0. A template
+  `ICHARG` of 0, 1 or 2 (or none) becomes 1 with a non-empty CHGCAR, else 0
+  when the WAVECAR is read (the density from its wavefunctions), else 2. They
+  are copied in again when a run left them missing or empty. An `ISTART` or
+  `ICHARG` in `incar_tags` is never changed, not by a remedy either; an
+  `ISTART` of 1, 2 or 3 without a non-empty WAVECAR, or an `ICHARG` of 1 or 11
+  without a non-empty CHGCAR, fails `vasp.input_missing`. A `scale_lattice`
+  remedy changes the cell, and with it the grid a supplied CHGCAR was written
+  on: `vasp-relax-ions` and `vasp-dielectric` never apply it, and `vasp-static`
+  skips it while it reads a supplied density (`ICHARG` 1 or 11), so an
+  `ions_too_close` failure is then not rescaled. `vasp-dos` reads `chgcar`
+  too (see its section). A runner that does not use a supplied `files/CHGCAR`
+  or `files/WAVECAR` logs a note saying so; the job does not fail.
+* `scf_incar` (default `files/scf-INCAR`, `vasp-static`, `vasp-relax-ions`
+  and `vasp-dielectric`; `vasp-dos` compares it by its own rule, see its
+  section) — the INCAR the CHGCAR was computed with. When the file is there, a
   `PREC`, `ENCUT` or `ENAUG` of the prepared INCAR that differs from it
   (compared case-insensitively, an absent tag equal only to an absent one)
   fails `vasp.charge_density_incompatible`, and a missing CHGCAR fails

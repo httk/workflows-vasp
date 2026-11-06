@@ -13,7 +13,8 @@ step after a crash repeats only that step's own work:
 
 * ``prepare`` stages the structure and checks the inputs; when the payload gives
   a charge density (``files/CHGCAR`` with the ``files/scf-INCAR`` it was computed
-  with, optionally ``files/scf-OUTCAR``), it goes straight to the nscf stage;
+  with, the ``chgcar`` and ``scf_incar`` parameters, optionally
+  ``files/scf-OUTCAR``), it goes straight to the nscf stage;
 * ``stage_scf`` and ``run_scf`` prepare and run the self-consistent stage from
   ``templates/INCAR.scf``, on the automatic mesh of ``kpoint_density``, and
   archive it under ``scf/``, leaving its CHGCAR at the top of the workdir;
@@ -152,13 +153,15 @@ def prepare(a: Attempt) -> None:
         )
         return
     files = a.payload / "files"
-    given = (files / "CHGCAR").is_file()
-    if given and not (files / "scf-INCAR").is_file():
+    chgcar_name, scf_incar_name = a.parameter("chgcar", "files/CHGCAR"), a.parameter("scf_incar", "files/scf-INCAR")
+    chgcar, scf_incar = a.payload / chgcar_name, a.payload / scf_incar_name
+    given = chgcar.is_file()
+    if given and not scf_incar.is_file():
         a.fail(
             "vasp.input_missing",
-            "files/CHGCAR is given without files/scf-INCAR, the INCAR it was computed with: "
+            f"{chgcar_name} is given without {scf_incar_name}, the INCAR it was computed with: "
             "its density-defining tags must be known to check that the nscf stage can read it",
-            details={"expected": str(files / "scf-INCAR")},
+            details={"expected": str(scf_incar)},
         )
         return
     # Checked here, before any VASP run, on every source of either stage's INCAR: the job's
@@ -175,7 +178,7 @@ def prepare(a: Attempt) -> None:
         if source.is_file():
             sources[f"{source.parent.name}/INCAR.{name}"] = read_incar(source)
     if given:
-        sources["files/scf-INCAR"] = read_incar(files / "scf-INCAR")
+        sources[scf_incar_name] = read_incar(scf_incar)
     # incar_tags apply to both stages, so any ICHARG there is wrong for one of them.
     for source, tags in sources.items():
         icharg = tags.get("ICHARG")
@@ -203,16 +206,18 @@ def prepare(a: Attempt) -> None:
         shutil.copyfile(potcar, a.workdir / "POTCAR")
         if variants:
             a.log.append("note", "potcar_variants is not used: this payload supplies its own POTCAR")
+    if (files / "WAVECAR").is_file():
+        a.log.append("note", "files/WAVECAR is not used by vasp.dos")
     if not given:
         a.advance("stage_scf", state={"given_density": False})
         return
-    shutil.copyfile(files / "CHGCAR", a.workdir / "CHGCAR")
+    shutil.copyfile(chgcar, a.workdir / "CHGCAR")
     if (files / "scf-OUTCAR").is_file():
         # For provenance only: the energy belongs to the job that computed the density.
         (a.workdir / "scf").mkdir(exist_ok=True)
         shutil.copyfile(files / "scf-OUTCAR", a.workdir / "scf" / "OUTCAR")
-    a.log.append("note", "reading the given charge density files/CHGCAR: no scf stage runs")
-    a.advance("stage_nscf", state={"given_density": True, "scf_incar": sources["files/scf-INCAR"]})
+    a.log.append("note", f"reading the given charge density {chgcar_name}: no scf stage runs")
+    a.advance("stage_nscf", state={"given_density": True, "scf_incar": sources[scf_incar_name]})
 
 
 def stage_inputs(a: Attempt, name: str) -> bool:

@@ -143,6 +143,9 @@ def prepare(a: Attempt) -> None:
         shutil.copyfile(potcar, a.workdir / "POTCAR")
         if variants:
             a.log.append("note", "potcar_variants is not used: this payload supplies its own POTCAR")
+    for name in ("CHGCAR", "WAVECAR"):
+        if (a.payload / "files" / name).is_file():
+            a.log.append("note", f"files/{name} is not used by vasp.relax")
     a.advance("stage", state={"stage": "preprerelax", "relax_round": 0})
 
 

@@ -656,9 +656,7 @@ def optimizer(a: Attempt, driver: dict) -> TrustBFGS:
         return min(limits)
 
     state = driver["optimizer"]
-    opt = TrustBFGS(
-        state["B"], step_scale, float(parameter(a, "rise_tolerance")), float(parameter(a, "rise_ceiling"))
-    )
+    opt = TrustBFGS(state["B"], step_scale, float(parameter(a, "rise_tolerance")), float(parameter(a, "rise_ceiling")))
     opt.trust_factor = state["trust_factor"]
     opt.current = None if state["current"] is None else tuple(state["current"])
     opt.history = state["history"]
@@ -826,6 +824,10 @@ def prepare(a: Attempt) -> None:
         shutil.copyfile(potcar, a.workdir / "POTCAR")
         if variants:
             a.log.append("note", "potcar_variants is not used: this payload supplies its own POTCAR")
+    seeds = {str(parameter(a, f"{kind}_wavecar")) for kind in ("coarse", "final")}
+    for name in ("CHGCAR", "WAVECAR"):
+        if f"files/{name}" not in seeds and (a.payload / "files" / name).is_file():
+            a.log.append("note", f"files/{name} is not used by vasp.relax-static-coarse")
     normalize_poscar_handedness(a.workdir / "POSCAR")
     try:
         reference = read_poscar(a.workdir / "POSCAR")

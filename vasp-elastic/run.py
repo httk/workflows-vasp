@@ -302,6 +302,9 @@ def start(a: Attempt) -> None:
     if not poscar.is_file():
         a.fail("vasp.input_missing", f"the starting structure {poscar.name} is not in this payload")
         return
+    for name in ("CHGCAR", "WAVECAR"):
+        if (a.payload / "files" / name).is_file():
+            a.log.append("note", f"files/{name} is not used by vasp.elastic; it is not passed to the child jobs")
     if not relax:
         (a.workdir / RELAXED).parent.mkdir(exist_ok=True)
         shutil.copyfile(poscar, a.workdir / RELAXED)

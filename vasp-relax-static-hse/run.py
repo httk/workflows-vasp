@@ -8,7 +8,9 @@ the remedy ladder are that package's, unchanged:
 
 * ``mode = "no_pbe"`` (default): ``start`` calls the driver on the input
   structure with its own PBE templates (child ``pbe``); ``after_pbe`` reads the
-  PBE result and calls the driver again with HSE (child ``hse``).
+  PBE result and calls the driver again with HSE (child ``hse``). A payload
+  ``files/WAVECAR.pbe`` / ``files/WAVECAR.pbe.final`` is the PBE stage's
+  coarse / final seed, staged as it is.
 * ``mode = "start_from_pbe"``: the input structure is already PBE-relaxed;
   ``start`` calls the HSE stage on it directly. ``pbe_provenance`` (a record id,
   job key or other pointer to where the structure came from) is required, and
@@ -178,6 +180,9 @@ def start(a: Attempt) -> None:
     if not poscar.is_file():
         a.fail("vasp.input_missing", f"the starting structure {poscar.name} is not in this payload")
         return
+    for name in ("CHGCAR", "WAVECAR"):
+        if (a.payload / "files" / name).is_file():
+            a.log.append("note", f"files/{name} is not used by vasp.relax-static-hse; its seeds are files/WAVECAR.pbe*")
     potcar = a.payload / str(parameter(a, "potcar"))
     files = {"POSCAR": poscar} | ({"POTCAR": potcar} if potcar.is_file() else {})
     stages = {"workflow": "vasp.relax-static-hse", "mode": mode, "input_sha256": sha256(poscar), "stages": {}}
@@ -199,11 +204,16 @@ def start(a: Attempt) -> None:
         call_hse(a, stages, poscar, files.get("POTCAR"), {}, {k: p for k, p in given.items() if p.is_file()})
         return
 
+    parameters = shared_parameters(a) | dict(parameter(a, "pbe_parameters") or {})
     for kind in ("coarse", "final"):
         incar = a.payload / "files" / f"INCAR.pbe.{kind}"
         if incar.is_file():
             files[f"INCAR.{kind}"] = incar
-    parameters = shared_parameters(a) | dict(parameter(a, "pbe_parameters") or {})
+        # A given seed goes to the PBE stage, which stages it as it is (VASP's output says whether it was read).
+        name = "WAVECAR.pbe" if kind == "coarse" else "WAVECAR.pbe.final"
+        if (a.payload / "files" / name).is_file():
+            files[name] = a.payload / "files" / name
+            parameters[f"{kind}_wavecar"] = f"files/{name}"
     a.call(CALLEE, label="pbe", files=files, parameters=parameters)
     stages["stages"]["pbe"] = {"source": "child", "parameters": parameters}
     write_stages(a, stages)

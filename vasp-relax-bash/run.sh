@@ -31,7 +31,7 @@ _vasp_templates=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/templates
 
 # Stage the structure and POTCAR of the payload, and go on to the first stage.
 step_prepare() {
-    local poscar potcar expected variants
+    local poscar potcar expected variants name
     poscar=$HTTK_WORKFLOW_JOB_DIR/$(httk_workflow_parameter poscar files/POSCAR)
     if [ ! -f "$poscar" ]; then
         expected=$(_vasp_json_string poscar "$poscar") || return 0
@@ -53,6 +53,11 @@ step_prepare() {
             httk_workflow_runlog_note "potcar_variants is not used: this payload supplies its own POTCAR"
         fi
     fi
+    for name in CHGCAR WAVECAR; do
+        if [ -f "$HTTK_WORKFLOW_JOB_DIR/files/$name" ]; then
+            httk_workflow_runlog_note "files/$name is not used by $HTTK_WORKFLOW_RUNNER_WORKFLOW"
+        fi
+    done
     httk_workflow_advance stage --state stage=preprerelax --state relax_round=0
 }
 

@@ -43,6 +43,7 @@ def _campaign(
     monkeypatch: pytest.MonkeyPatch,
     *,
     parameters: dict[str, object] | None = None,
+    extra_files: dict[str, str] | None = None,
     sleep: float | None = None,
     end_time_after: float | None = None,
 ) -> tuple[Workspace, str]:
@@ -57,7 +58,7 @@ def _campaign(
     staged = root / "inputs"
     staged.mkdir()
     files = {}
-    for name, content in (("POSCAR", _POSCAR), ("POTCAR", _POTCAR)):
+    for name, content in {"POSCAR": _POSCAR, "POTCAR": _POTCAR, **(extra_files or {})}.items():
         (staged / name).write_text(content, encoding="utf-8")
         files[name] = staged / name
     # The callee first, from this repository, so the composer's declared call resolves to it.
@@ -184,6 +185,25 @@ def test_from_a_pbe_relaxed_structure_only_the_hse_stage_runs(tmp_path: Path, mo
     # No seeds were given: every first evaluation is a fresh start.
     assert stages["stages"]["hse"]["seeds"] == {}
     assert runs[0]["tags"]["ISTART"] == "0"
+
+
+def test_without_pbe_a_given_pbe_seed_goes_to_the_pbe_stage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    workspace, job_id = _campaign(
+        tmp_path / "seeded",
+        monkeypatch,
+        parameters={"pbe_parameters": _MESHES},
+        extra_files={"WAVECAR.pbe": "wave 3 3 3"},
+    )
+    kind, payload = _job(workspace, job_id)
+    assert kind == "succeeded"
+    stages = _stages(payload)
+    assert stages["stages"]["pbe"]["parameters"]["coarse_wavecar"] == "files/WAVECAR.pbe"
+    assert "final_wavecar" not in stages["stages"]["pbe"]["parameters"]
+    pbe = _child(workspace, stages, "pbe")
+    # Staged as it is: the first coarse evaluation restarts from it.
+    assert _runs(pbe / "run")[0]["WAVECAR"] == "wave 3 3 3"
+    first = _report(pbe / "run")["evaluations"][0]
+    assert first["restart_source"] == "seed" and first["restart_observed"] is True
 
 
 def test_an_allocation_that_ends_mid_chain_is_resumed_by_a_later_manager(

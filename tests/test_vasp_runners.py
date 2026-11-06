@@ -69,13 +69,16 @@ ENERGIES = {energies!r}
 IONIC_NONCONVERGED = {ionic!r}
 # The runs that also report too few bands, a non-warning problem the ladder remedies.
 TOO_FEW_BANDS = {too_few_bands!r}
+# The runs that leave an empty CHGCAR behind, as VASP may with LCHARG = .FALSE.
+EMPTY_CHGCAR = {empty_chgcar!r}
 
 attempts = Path("fake-vasp-attempts")
 count = int(attempts.read_text()) if attempts.is_file() else 0
 attempts.write_text(str(count + 1))
 tags = read_incar("INCAR")
 with Path("fake-vasp-runs.jsonl").open("a") as stream:
-    stream.write(json.dumps(dict(INCAR=Path("INCAR").read_text(), tags=tags, CHGCAR=Path("CHGCAR").is_file())) + "\\n")
+    chgcar = Path("CHGCAR").read_text() if Path("CHGCAR").is_file() else None
+    stream.write(json.dumps(dict(INCAR=Path("INCAR").read_text(), tags=tags, CHGCAR=chgcar is not None, CHGCAR_TEXT=chgcar)) + "\\n")
 structure = Path("POSCAR").read_text().splitlines()
 
 if {fail_when}:
@@ -115,6 +118,8 @@ Path("vasprun.xml").write_text(
 )
 if tags.get("LCHARG", "").strip(".").upper().startswith("T"):
     Path("CHGCAR").write_text("fake charge density\\n")
+elif count in EMPTY_CHGCAR:
+    Path("CHGCAR").write_text("")
 '''
 
 _COLLECTED = (
@@ -138,6 +143,7 @@ def _fake_vasp(
     ionic: tuple[int, ...] = (),
     too_few_bands: tuple[int, ...] = (),
     static_energy: float = -10.5,
+    empty_chgcar: tuple[int, ...] = (),
 ) -> Path:
     """Install the fake VASP executable and return its path.
 
@@ -146,7 +152,8 @@ def _fake_vasp(
     Run ``count`` ends at ``energies[count]`` (the last one repeating), and the runs
     in *ionic* use up all their ``NSW`` ionic steps, and those in *too_few_bands*
     also print VASP's TOO FEW BANDS warning. A single point (``NSW = 0``)
-    reports *static_energy* in its OUTCAR.
+    reports *static_energy* in its OUTCAR, and the runs in *empty_chgcar* leave
+    an empty CHGCAR unless they write one.
     """
 
     path = root / ("fail-once-vasp" if fail_once else "fake-vasp")
@@ -158,6 +165,7 @@ def _fake_vasp(
             ionic=list(ionic),
             too_few_bands=list(too_few_bands),
             static_energy=static_energy,
+            empty_chgcar=list(empty_chgcar),
         ),
         encoding="utf-8",
     )
@@ -228,7 +236,7 @@ def _campaign(
 
 
 def _runs(workdir: Path) -> list[dict[str, Any]]:
-    """Every fake VASP run of one job, in order: its INCAR text and tags, and whether a CHGCAR was there."""
+    """Every fake VASP run of one job, in order: its INCAR text and tags, and whether a CHGCAR was there and its text."""
 
     return [json.loads(line) for line in (workdir / "fake-vasp-runs.jsonl").read_text(encoding="utf-8").splitlines()]
 
@@ -1046,17 +1054,12 @@ def test_vasp_cli_runs_and_collects_default_workdir_or_published_results(
                 assert f"{energy:.8f} eV" in (result.output_dir / "relaxation_energies.svg").read_text()
 
 
-@pytest.mark.parametrize(
-    ("directory", "parameters"),
-    [("vasp-static", {}), ("vasp-relax-ions", {"incar_tags": {"ICHARG": 1}})],
-)
+@pytest.mark.parametrize("directory", ["vasp-static", "vasp-relax-ions"])
 def test_a_supplied_charge_density_is_staged_and_read(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, directory: str, parameters: dict[str, object]
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, directory: str
 ) -> None:
-    # vasp-static's template asks for ICHARG = 1; vasp-relax-ions' starts from atomic charges.
-    workspace, job_id = _campaign(
-        tmp_path / "c", monkeypatch, directory, parameters=parameters, extra_files={"CHGCAR": "density\n"}
-    )
+    # vasp-static's template asks for ICHARG = 1; vasp-relax-ions' atomic charges give way to the CHGCAR.
+    workspace, job_id = _campaign(tmp_path / "c", monkeypatch, directory, extra_files={"CHGCAR": "density\n"})
 
     kind, payload = _payload_of(workspace, job_id)
     assert kind == "succeeded"
@@ -1084,11 +1087,32 @@ def test_a_supplied_charge_density_is_staged_and_read(
             },
             ("0", "2"),
         ),
-        # vasp-relax-ions' template starts from atomic charges even when it reads the wavefunctions.
-        ("vasp-relax-ions", {}, {"WAVECAR": "orbitals\n"}, ("1", "2")),
+        # vasp-relax-ions' template atomic charges apply only when nothing is supplied.
+        ("vasp-relax-ions", {}, {"WAVECAR": "orbitals\n"}, ("1", "0")),
+        ("vasp-relax-ions", {}, {"WAVECAR": "orbitals\n", "CHGCAR": "density\n"}, ("1", "1")),
+        ("vasp-relax-ions", {}, {"CHGCAR": ""}, ("0", "2")),
+        # A template ICHARG of 0, 1 or 2 follows the supplied files; any other is the template's own.
+        (
+            "vasp-static",
+            {},
+            {
+                "INCAR.static": _template("vasp-static", "INCAR.static").replace("\nICHARG=1", "\nICHARG=2"),
+                "CHGCAR": "density\n",
+            },
+            ("0", "1"),
+        ),
+        (
+            "vasp-static",
+            {},
+            {
+                "INCAR.static": _template("vasp-static", "INCAR.static").replace("\nICHARG=1", "\nICHARG=11"),
+                "CHGCAR": "density\n",
+            },
+            ("0", "11"),
+        ),
     ],
 )
-def test_a_supplied_wavecar_is_read(
+def test_supplied_files_settle_istart_and_icharg(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     directory: str,
@@ -1130,6 +1154,71 @@ def test_a_supplied_wavecar_is_read_after_a_remedy(tmp_path: Path, monkeypatch: 
     kind, payload = _payload_of(workspace, job_id)
     assert kind == "succeeded"
     assert [run["tags"]["ISTART"] for run in _runs(payload / "run")] == ["1", "1"]
+
+
+@pytest.mark.parametrize(
+    ("parameters", "fake", "second"),
+    [
+        # The first run empties the CHGCAR: the supplied one is staged again.
+        ({}, {"ionic": (0,), "empty_chgcar": (0,)}, "density\n"),
+        # The first run writes a CHGCAR (LCHARG): the rerun reads that one.
+        ({"incar_tags": {"LCHARG": True}}, {"ionic": (0,)}, "fake charge density\n"),
+    ],
+)
+def test_a_supplied_charge_density_is_staged_again_only_when_spoiled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, parameters: dict[str, object], fake: dict[str, Any], second: str
+) -> None:
+    # The NSW-exhausted first run is continued from its CONTCAR.
+    workspace, job_id = _campaign(
+        tmp_path / "c",
+        monkeypatch,
+        "vasp-relax-ions",
+        parameters=parameters,
+        extra_files={"CHGCAR": "density\n"},
+        fake=fake,
+    )
+
+    kind, payload = _payload_of(workspace, job_id)
+    assert kind == "succeeded"
+    runs = _runs(payload / "run")
+    assert [(run["tags"]["ICHARG"], run["CHGCAR_TEXT"]) for run in runs] == [("1", "density\n"), ("1", second)]
+
+
+@pytest.mark.parametrize(("chgcar", "kind"), [(True, "failed"), (False, "succeeded")])
+def test_a_static_run_reading_a_supplied_density_is_never_rescaled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, chgcar: bool, kind: str
+) -> None:
+    # ions_too_close has scale_lattice as its only remedy.
+    workspace, job_id = _campaign(
+        tmp_path / "c",
+        monkeypatch,
+        "vasp-static",
+        extra_files={"CHGCAR": "density\n"} if chgcar else {},
+        fail_once=True,
+        fake={"failure": "distance between some ions is very small"},
+    )
+
+    assert _payload_of(workspace, job_id)[0] == kind
+    if chgcar:
+        failure = _failure(workspace, job_id)
+        assert failure["code"] == "vasp.failed"
+        assert "excluded by the caller: scale_lattice" in failure["details"]["reason"]
+
+
+@pytest.mark.parametrize("directory", ["vasp-relax", "vasp-relax-static", "vasp-relax-bash"])
+def test_a_relaxation_notes_the_supplied_files_it_does_not_use(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, directory: str
+) -> None:
+    workspace, job_id = _campaign(
+        tmp_path / "c", monkeypatch, directory, extra_files={"CHGCAR": "x\n", "WAVECAR": "y\n"}
+    )
+
+    kind, payload = _payload_of(workspace, job_id)
+    assert kind == "succeeded"
+    lines = (payload / ".httk-job" / "runlog.jsonl").read_text(encoding="utf-8").splitlines()
+    notes = [record["message"] for record in map(json.loads, lines) if record.get("kind") == "note"]
+    for name in ("CHGCAR", "WAVECAR"):
+        assert any(note.startswith(f"files/{name} is not used by vasp.relax") for note in notes), notes
 
 
 def test_an_icharg_from_incar_tags_is_kept_and_needs_a_charge_density(

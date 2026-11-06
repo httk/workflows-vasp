@@ -259,6 +259,15 @@ def test_a_given_charge_density_skips_the_scf_stage(tmp_path: Path, monkeypatch:
     assert "total_energy" not in item.outputs
     assert item.outputs["band_gap"].band_gap == pytest.approx(1.2)
 
+    # The chgcar and scf_incar parameters name the density and its INCAR under other names.
+    renamed = {"density": given["CHGCAR"], "density-INCAR": given["scf-INCAR"]}
+    parameters = {"chgcar": "files/density", "scf_incar": "files/density-INCAR"}
+    workspace, job_id = _campaign(tmp_path / "renamed", monkeypatch, extra_files=renamed, parameters=parameters)
+    kind, payload = _payload_of(workspace, job_id)
+    assert kind == "succeeded"
+    (nscf,) = _runs(payload / "run")
+    assert (nscf["tags"]["ICHARG"], nscf["CHGCAR"]) == ("11", True)
+
     # The density's INCAR must be known.
     workspace, job_id = _campaign(tmp_path / "alone", monkeypatch, extra_files={"CHGCAR": given["CHGCAR"]})
     kind, payload = _payload_of(workspace, job_id)

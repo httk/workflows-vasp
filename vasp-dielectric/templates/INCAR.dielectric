@@ -5,7 +5,8 @@
 # finite-difference derivative of the orbitals with respect to k), NSW=1,
 # ISMEAR=-5 and LREAL=.FALSE. (the response needs reciprocal-space projectors).
 # httk choices: EDIFF=1E-7 (the response needs a tight density), atomic
-# starting charges (ICHARG=2), and no WAVECAR or CHGCAR written.
+# starting charges (ICHARG=2) unless a CHGCAR or WAVECAR is supplied, and no
+# WAVECAR or CHGCAR written.
 # Insulators only: the response of a metal is not defined by this method.
 LWAVE=.FALSE.
 LCHARG=.FALSE.

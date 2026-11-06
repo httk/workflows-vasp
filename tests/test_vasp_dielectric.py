@@ -88,7 +88,13 @@ Path("vasprun.xml").write_text("<modeling></modeling>\\n")
 
 
 def _campaign(
-    root: Path, monkeypatch: pytest.MonkeyPatch, *, parameters=None, blocks_absent: bool = False, poscar: str = _POSCAR
+    root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    parameters=None,
+    blocks_absent: bool = False,
+    poscar: str = _POSCAR,
+    extra_files: dict[str, str] | None = None,
 ):
     root.mkdir(parents=True)
     executable = root / "fake-vasp"
@@ -99,7 +105,7 @@ def _campaign(
     staged = root / "inputs"
     staged.mkdir()
     stage = {}
-    for name, content in (("POSCAR", poscar), ("POTCAR", _POTCAR)):
+    for name, content in {"POSCAR": poscar, "POTCAR": _POTCAR, **(extra_files or {})}.items():
         stage[name] = staged / name
         stage[name].write_text(content, encoding="utf-8")
     job = new_job(
@@ -167,6 +173,19 @@ def test_the_dielectric_run_writes_the_response_and_collects_every_role(
     # Voigt order xx yy zz yz xz xy: VASP's XY (0.4 + 1) moves from column 3 to 5, ZX (0.6 + 1) to 4.
     assert item.outputs["piezoelectric_tensor"].value[0] == pytest.approx([1.1, 1.2, 1.3, 1.5, 1.6, 1.4])
     assert item.outputs["dielectric_response"].media_type == "application/json"
+
+
+@pytest.mark.parametrize(
+    ("supplied", "expected"), [({"CHGCAR": "density\n"}, ("0", "1")), ({"WAVECAR": "orbitals\n"}, ("1", "0"))]
+)
+def test_a_supplied_charge_density_or_wavecar_is_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, supplied: dict[str, str], expected: tuple[str, str]
+) -> None:
+    workspace, job_id = _campaign(tmp_path / "c", monkeypatch, extra_files=supplied)
+    kind, payload = _payload_of(workspace, job_id)
+    assert kind == "succeeded", _failure(workspace, job_id)
+    (run,) = _runs(payload / "run")
+    assert (run["tags"]["ISTART"], run["tags"]["ICHARG"]) == expected
 
 
 @pytest.mark.parametrize(

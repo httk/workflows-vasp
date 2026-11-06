@@ -249,6 +249,9 @@ def prepare(a: Attempt) -> None:
         shutil.copyfile(potcar, a.workdir / "POTCAR")
         if variants:
             a.log.append("note", "potcar_variants is not used: this payload supplies its own POTCAR")
+    for name in ("CHGCAR", "WAVECAR"):
+        if (a.payload / "files" / name).is_file():
+            a.log.append("note", f"files/{name} is not used by vasp.band-structure")
     symbol = result.bravais_lattice_extended
     write_line_mode_kpoints(
         a.workdir / "KPOINTS.bands",

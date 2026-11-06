@@ -16,6 +16,10 @@ last two with ``IBRION = 8``), so ``incar_tags`` may not set them
 ``excluded_remedies`` names. ``kpoint_grid = "n1 n2 n3"`` fixes the automatic mesh; the default
 centering is Gamma, which the tetrahedron method (``ISMEAR = -5``) wants.
 
+A payload ``files/CHGCAR`` and ``files/WAVECAR`` (the ``chgcar`` and ``wavecar`` parameters)
+are staged under the rules of ``vasp-static``: the template's atomic charges (``ICHARG = 2``)
+apply only when nothing is supplied.
+
 Nothing here imports anything but an installed *httk-workflow*, *httk-atomistic* and
 *httk-workflow-vasp*; reference this package directory by git URI (e.g.
 ``git+https://github.com/httk/workflows-vasp#vasp-dielectric``) or with ``--workflow-dir``. The
@@ -46,6 +50,7 @@ from httk.codes.vasp import (
     read_incar,
     read_poscar_header,
     run_vasp,
+    update_incar,
     validate_vasp_workdir,
     write_automatic_kpoints,
 )
@@ -53,11 +58,14 @@ from httk.workflow import Attempt, Runner
 
 COLLECT = "dielectric.json POSCAR INCAR KPOINTS OUTCAR CONTCAR OSZICAR vasprun.xml vasp-run-report.json POTCAR.provenance.json"
 # Kept across a remedied rerun: they make the rerun cheaper, and VASP overwrites
-# them itself when it reuses them.
+# them itself when it reuses them. A supplied CHGCAR or WAVECAR that a run left
+# missing or empty is staged again before the next run.
 KEEP_BETWEEN_RUNS = ("WAVECAR", "CHGCAR", "CHG")
 TEMPLATES = Path(__file__).resolve().parent / "templates"
 
 DEFINING_TAGS = ("IBRION", "LEPSILON", "NCORE", "NPAR")
+# The INCAR tags that fix the FFT grid a CHGCAR is written on.
+GRID_TAGS = ("PREC", "ENCUT", "ENAUG")
 VOIGT_ORDER = ["XX", "YY", "ZZ", "XY", "YZ", "ZX"]
 
 run = Runner("vasp.dielectric")
@@ -155,6 +163,99 @@ def write_response(workdir: Path) -> str | None:
     return None
 
 
+def pinned_icharg(a: Attempt) -> set[str]:
+    """Return ``{"incar.ICHARG"}`` when the job's ``incar_tags`` set ``ICHARG``, which no remedy may change."""
+
+    tags = dict(a.parameter("incar_tags", {}) or {})
+    return {"incar.ICHARG"} if any(str(tag).strip().upper() == "ICHARG" for tag in tags) else set()
+
+
+def stage_charge_density(a: Attempt, explicit: dict[str, object]) -> bool:
+    """Settle ``ISTART`` and ``ICHARG`` against the staged ``WAVECAR`` and ``CHGCAR``, after input preparation.
+
+    An ``ISTART`` or ``ICHARG`` from *explicit* (the job's ``incar_tags``) is never
+    changed. Otherwise a non-empty staged ``WAVECAR`` turns an ``ISTART`` of 0 (or
+    none) into 1 and keeps a template's 2 or 3, and without one a nonzero ``ISTART``
+    becomes 0. A template ``ICHARG`` of 0, 1 or 2 (or none) becomes 1 with a non-empty
+    staged ``CHGCAR``, else 0 when the wavefunctions are read, else 2.
+
+    :param a: The attempt whose workdir holds the prepared inputs.
+    :param explicit: The job's ``incar_tags``.
+    :return: Whether the job may go on; when not, it has failed.
+    """
+
+    incar = a.workdir / "INCAR"
+    chgcar = a.workdir / "CHGCAR"
+    has_density = chgcar.is_file() and chgcar.stat().st_size > 0
+    wavecar = a.workdir / "WAVECAR"
+    has_wavefunctions = wavecar.is_file() and wavecar.stat().st_size > 0
+    named = a.parameter("chgcar", "files/CHGCAR")
+    expected = {"expected": str(a.payload / named)}
+    requested = {str(tag).strip().upper(): value for tag, value in explicit.items()}
+    if "ISTART" in requested:
+        value = requested["ISTART"]
+        if str(value).strip() in ("1", "2", "3") and not has_wavefunctions:
+            orbitals = a.parameter("wavecar", "files/WAVECAR")
+            a.fail(
+                "vasp.input_missing",
+                f"ISTART = {str(value).strip()} from incar_tags reads wavefunctions, but this payload has no non-empty {orbitals}",
+                details={"ISTART": value, "expected": str(a.payload / orbitals)},
+            )
+            return False
+    else:
+        istart = read_incar(incar).get("ISTART")
+        if has_wavefunctions and istart in (None, "0"):
+            update_incar({"ISTART": 1}, incar)
+        elif not has_wavefunctions and istart not in (None, "0"):
+            update_incar({"ISTART": 0}, incar)
+    reads_wavefunctions = has_wavefunctions and read_incar(incar).get("ISTART", "0") != "0"
+    if "ICHARG" in requested:
+        value = requested["ICHARG"]
+        if str(value).strip() in ("1", "11") and not has_density:
+            a.fail(
+                "vasp.input_missing",
+                f"ICHARG = {str(value).strip()} from incar_tags reads a charge density, but this payload has no non-empty {named}",
+                details={"ICHARG": value, **expected},
+            )
+            return False
+    else:
+        current = read_incar(incar).get("ICHARG")
+        target = 1 if has_density else 0 if reads_wavefunctions else 2
+        if current in (None, "0", "1", "2") and current != str(target):
+            update_incar({"ICHARG": target}, incar)
+    scf_incar = a.payload / a.parameter("scf_incar", "files/scf-INCAR")
+    if not scf_incar.is_file():
+        return True
+    if not has_density:
+        a.fail(
+            "vasp.input_missing",
+            f"{scf_incar.name} describes a charge density, but this payload has no non-empty {named}",
+            details=expected,
+        )
+        return False
+    scf, staged = read_incar(scf_incar), read_incar(incar)
+
+    def normalized(value: str | None) -> str | None:
+        return None if value is None else value.strip().lower()
+
+    differences = {
+        tag: {"scf": scf.get(tag), "staged": staged.get(tag)}
+        for tag in GRID_TAGS
+        if normalized(scf.get(tag)) != normalized(staged.get(tag))
+    }
+    if differences:
+        listed = "; ".join(
+            f"{tag} {pair['scf']!r} in {scf_incar.name}, {pair['staged']!r} here" for tag, pair in differences.items()
+        )
+        a.fail(
+            "vasp.charge_density_incompatible",
+            f"this calculation cannot read the supplied charge density: {listed}",
+            details={"differences": differences},
+        )
+        return False
+    return True
+
+
 @run.step
 def prepare(a: Attempt) -> None:
     """Stage the structure and the INCAR template, derive the rest, and go on to run VASP."""
@@ -169,7 +270,8 @@ def prepare(a: Attempt) -> None:
             details={"expected": str(poscar)},
         )
         return
-    for tag in dict(a.parameter("incar_tags", {}) or {}):
+    explicit = dict(a.parameter("incar_tags", {}) or {})
+    for tag in explicit:
         if str(tag).strip().upper() in DEFINING_TAGS:
             a.fail(
                 "vasp.unsupported_incar_tag",
@@ -230,6 +332,10 @@ def prepare(a: Attempt) -> None:
         if variants:
             a.log.append("note", "potcar_variants is not used: this payload supplies its own POTCAR")
         library = None
+    for name in ("CHGCAR", "WAVECAR"):
+        supplied = a.payload / a.parameter(name.lower(), f"files/{name}")
+        if supplied.is_file():
+            shutil.copyfile(supplied, a.workdir / name)
     parallel_value = a.parameter("parallel_value", None)
     options = VaspPreparationOptions(
         kpoint_density=float(a.parameter("kpoint_density", 20.0) or 20.0),
@@ -242,13 +348,15 @@ def prepare(a: Attempt) -> None:
         # The template's own EDIFF/EDIFFG are kept rather than derived; the job's tags win over both.
         incar_tags={
             **{tag: template[tag] for tag in ("EDIFF", "EDIFFG") if tag in template},
-            **dict(a.parameter("incar_tags", {}) or {}),
+            **explicit,
         },
     )
     prepare_vasp_inputs(options, directory=a.workdir)
     if grid:
         write_automatic_kpoints(grid, a.workdir / "KPOINTS", centering=options.centering)
         a.log.append("note", f"fixed the k-point mesh at {' '.join(map(str, grid))} ({options.centering})")
+    if not stage_charge_density(a, explicit):
+        return
     a.log.append("note", "prepared a vasp.dielectric calculation")
     a.advance("run")
 
@@ -269,6 +377,12 @@ def run_step(a: Attempt) -> None:
     # A rerun must not read the previous run's outputs; CONTCAR and the run report
     # survive on purpose, since a remedy and a restart are derived from them.
     clean_vasp_outputs(a.workdir, keep=KEEP_BETWEEN_RUNS)
+    # A supplied file an earlier run left missing or empty is staged again.
+    for name in ("CHGCAR", "WAVECAR"):
+        supplied = a.payload / a.parameter(name.lower(), f"files/{name}")
+        target = a.workdir / name
+        if supplied.is_file() and not (target.is_file() and target.stat().st_size > 0):
+            shutil.copyfile(supplied, target)
     try:
         report = run_vasp(
             argv,
@@ -307,7 +421,8 @@ def run_step(a: Attempt) -> None:
             history_path=history,
             policy=a.parameter("remedy_policy", "reviewed-v1"),
             excluded_operations={"incar.NPAR", "scale_lattice", "contcar_to_poscar"}
-            | excluded_remedies(a.parameter("excluded_remedies", "")),
+            | excluded_remedies(a.parameter("excluded_remedies", ""))
+            | pinned_icharg(a),
         )
     except ValueError as exception:
         a.state.merge(state)

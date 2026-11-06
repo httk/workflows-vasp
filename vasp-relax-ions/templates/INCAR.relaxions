@@ -5,7 +5,8 @@
 # (2, or 4 to relax the cell shape at fixed volume). ISMEAR=0 with SIGMA=0.05,
 # since Bloechl-tetrahedron forces and stresses are unreliable for metals.
 # httk choices: IBRION=2 with NSW=99, NELM=100 (more electronic steps for the
-# tight EDIFF), atomic starting charges, and no WAVECAR or CHGCAR written.
+# tight EDIFF), atomic starting charges unless a CHGCAR or WAVECAR is
+# supplied, and no WAVECAR or CHGCAR written.
 LWAVE=.FALSE.
 LCHARG=.FALSE.
 ISTART=0

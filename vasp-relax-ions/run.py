@@ -33,13 +33,8 @@ with ``--workflow-dir``, or copy the package directory and edit it. The runner
 file alone, without its ``templates/``, fails with ``vasp.template_missing``.
 
 A payload ``files/CHGCAR`` and ``files/WAVECAR`` are staged under the rules of
-``vasp-static``, so a supplied WAVECAR is read (``ISTART = 1``). The template
-starts from atomic charges (``ICHARG = 2``) even then: ``incar_tags =
-{"ICHARG": 0}`` builds the starting density from the WAVECAR instead, and
-``{"ICHARG": 1}`` reads the CHGCAR. An ``ICHARG`` from ``incar_tags`` is never
-changed, and 1 without a CHGCAR fails ``vasp.input_missing``; a template edited to
-``ICHARG = 1`` falls back without one as in ``vasp-static``, and a payload
-``files/scf-INCAR`` must agree on ``PREC``, ``ENCUT`` and ``ENAUG``.
+``vasp-static``: the template's atomic charges (``ICHARG = 2``) apply only when
+nothing is supplied.
 """
 
 import re
@@ -70,7 +65,8 @@ from httk.workflow import Attempt, Runner
 
 COLLECT = "INCAR KPOINTS OUTCAR CONTCAR OSZICAR vasprun.xml vasp-run-report.json POTCAR.provenance.json"
 # Kept across a remedied rerun: they make the rerun cheaper, and VASP overwrites
-# them itself when it reuses them.
+# them itself when it reuses them. A supplied CHGCAR or WAVECAR that a run left
+# missing or empty is staged again before the next run.
 KEEP_BETWEEN_RUNS = ("WAVECAR", "CHGCAR", "CHG")
 TEMPLATES = Path(__file__).resolve().parent / "templates"
 # The INCAR tags that fix the FFT grid a CHGCAR is written on.
@@ -127,9 +123,8 @@ def stage_charge_density(a: Attempt, explicit: dict[str, object]) -> bool:
     An ``ISTART`` or ``ICHARG`` from *explicit* (the job's ``incar_tags``) is never
     changed. Otherwise a non-empty staged ``WAVECAR`` turns an ``ISTART`` of 0 (or
     none) into 1 and keeps a template's 2 or 3, and without one a nonzero ``ISTART``
-    becomes 0. The template's ``ICHARG = 1`` becomes 0 without a staged ``CHGCAR``
-    when the wavefunctions are read, and 2 when not; its ``ICHARG = 0`` becomes 2
-    when they are not read.
+    becomes 0. A template ``ICHARG`` of 0, 1 or 2 (or none) becomes 1 with a non-empty
+    staged ``CHGCAR``, else 0 when the wavefunctions are read, else 2.
 
     :param a: The attempt whose workdir holds the prepared inputs.
     :param explicit: The job's ``incar_tags``.
@@ -172,10 +167,9 @@ def stage_charge_density(a: Attempt, explicit: dict[str, object]) -> bool:
             return False
     else:
         current = read_incar(incar).get("ICHARG")
-        if current == "1" and not has_density:
-            update_incar({"ICHARG": 0 if reads_wavefunctions else 2}, incar)
-        elif current == "0" and not reads_wavefunctions:
-            update_incar({"ICHARG": 2}, incar)
+        target = 1 if has_density else 0 if reads_wavefunctions else 2
+        if current in (None, "0", "1", "2") and current != str(target):
+            update_incar({"ICHARG": target}, incar)
     scf_incar = a.payload / a.parameter("scf_incar", "files/scf-INCAR")
     if not scf_incar.is_file():
         return True
@@ -321,6 +315,12 @@ def run_step(a: Attempt) -> None:
     # A rerun must not read the previous run's outputs; CONTCAR and the run report
     # survive on purpose, since a remedy and a restart are derived from them.
     clean_vasp_outputs(a.workdir, keep=KEEP_BETWEEN_RUNS)
+    # A supplied file an earlier run left missing or empty is staged again.
+    for name in ("CHGCAR", "WAVECAR"):
+        supplied = a.payload / a.parameter(name.lower(), f"files/{name}")
+        target = a.workdir / name
+        if supplied.is_file() and not (target.is_file() and target.stat().st_size > 0):
+            shutil.copyfile(supplied, target)
     try:
         report = run_vasp(
             argv,

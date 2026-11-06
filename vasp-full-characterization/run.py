@@ -255,6 +255,11 @@ def start(a: Attempt) -> None:
     if not poscar.is_file():
         a.fail("vasp.input_missing", f"the starting structure {poscar.name} is not in this payload")
         return
+    for name in ("CHGCAR", "WAVECAR"):
+        if (a.payload / "files" / name).is_file():
+            a.log.append(
+                "note", f"files/{name} is not used by vasp.full-characterization; it is not passed to the child jobs"
+            )
     # Every child runs on the standardized cell; the relaxed CONTCAR keeps the input POSCAR's comment.
     sources = {"incar_tags": a.parameter("incar_tags", None) or {}}
     for label in ("relax", *PARTS):
